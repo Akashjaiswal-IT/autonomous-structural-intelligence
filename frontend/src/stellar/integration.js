@@ -8,7 +8,7 @@ const NETWORK_PASSPHRASE = StellarSdk.Networks.TESTNET;
 
 // Generate or retrieve a keypair for the demo
 // In production this should be stored securely — for hackathon we derive from a fixed seed
-const DEMO_SECRET = 'SCZANGBA5AKIA5ZA4JBZE6TGQBZXS7FBKTU4WUOVHXZM7NVXB44DLLV';
+const DEMO_SECRET = 'SDOMJO4CMGD5YJ53VOWCE6RS7P6DEHXLALBJOHAEHHPCRMORLLNH2FES';
 
 async function getSHA256(text) {
   const encoder = new TextEncoder();

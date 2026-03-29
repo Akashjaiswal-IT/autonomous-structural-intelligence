@@ -157,6 +157,8 @@ def _classify_walls(walls: list, boundary: dict, img_w: int, img_h: int) -> list
 
     Rules (in priority order):
     1. Outer boundary walls → always load-bearing
+       Guard: segment must be at least 10% of the floor dimension it runs along,
+       otherwise it is a window/door symbol or text fragment near the edge.
     2. Walls spanning > LOAD_BEARING_SPAN_RATIO of floor width/height → load-bearing
     3. Walls forming continuous spine across floor → load-bearing
     4. Everything else → partition
@@ -164,6 +166,11 @@ def _classify_walls(walls: list, boundary: dict, img_w: int, img_h: int) -> list
     floor_w = boundary["width_px"]
     floor_h = boundary["height_px"]
     EDGE_MARGIN = max(img_w, img_h) * 0.05
+
+    # Minimum length to qualify as an outer-boundary or spine wall.
+    # A window or door symbol sitting near the perimeter is usually < 10% of
+    # the floor width/height; real perimeter walls are much longer.
+    MIN_BOUNDARY_RATIO = 0.10   # must span at least 10% of the relevant floor dim
 
     # Group walls by their fixed coordinate (for spine detection)
     h_by_y = defaultdict(list)
@@ -183,20 +190,29 @@ def _classify_walls(walls: list, boundary: dict, img_w: int, img_h: int) -> list
         x_max = max(wall["x1"], wall["x2"])
         y_min = min(wall["y1"], wall["y2"])
         y_max = max(wall["y1"], wall["y2"])
+        length = wall["length_px"]
 
-        # Rule 1: outer boundary
+        # Rule 1: outer boundary — but only if the segment is long enough to be
+        # an actual wall, not a window opening or text symbol near the perimeter.
         near_edge = (x_min <= boundary["min_x"] + EDGE_MARGIN or
                      x_max >= boundary["max_x"] - EDGE_MARGIN or
                      y_min <= boundary["min_y"] + EDGE_MARGIN or
                      y_max >= boundary["max_y"] - EDGE_MARGIN)
 
         if near_edge:
-            wall["load_bearing"] = True
-            wall["lb_reason"] = "outer boundary wall"
-            continue
+            # Check the segment is substantial relative to its own axis
+            if wall["orientation"] == "horizontal":
+                qualifies = floor_w > 0 and length / floor_w >= MIN_BOUNDARY_RATIO
+            else:
+                qualifies = floor_h > 0 and length / floor_h >= MIN_BOUNDARY_RATIO
+
+            if qualifies:
+                wall["load_bearing"] = True
+                wall["lb_reason"] = "outer boundary wall"
+                continue
+            # else: too short — fall through to Rules 2/3 (likely partition/noise)
 
         # Rule 2: long span
-        length = wall["length_px"]
         if wall["orientation"] == "horizontal":
             if floor_w > 0 and length / floor_w >= LOAD_BEARING_SPAN_RATIO:
                 wall["load_bearing"] = True
@@ -209,16 +225,19 @@ def _classify_walls(walls: list, boundary: dict, img_w: int, img_h: int) -> list
                 continue
 
         # Rule 3: spine — wall is at center ± 15% of floor
+        # Same length guard: a tiny segment near the centre line is noise, not spine.
         if wall["orientation"] == "vertical":
             center_x = boundary["min_x"] + floor_w / 2
-            if abs(wall["x1"] - center_x) < floor_w * 0.15:
+            spine_length_ok = floor_h > 0 and length / floor_h >= MIN_BOUNDARY_RATIO
+            if abs(wall["x1"] - center_x) < floor_w * 0.15 and spine_length_ok:
                 wall["load_bearing"] = True
                 wall["lb_reason"] = "structural spine (central vertical wall)"
                 continue
 
         if wall["orientation"] == "horizontal":
             center_y = boundary["min_y"] + floor_h / 2
-            if abs(wall["y1"] - center_y) < floor_h * 0.15:
+            spine_length_ok = floor_w > 0 and length / floor_w >= MIN_BOUNDARY_RATIO
+            if abs(wall["y1"] - center_y) < floor_h * 0.15 and spine_length_ok:
                 wall["load_bearing"] = True
                 wall["lb_reason"] = "structural spine (central horizontal wall)"
                 continue

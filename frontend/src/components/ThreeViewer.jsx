@@ -87,7 +87,7 @@ function Scene({ threeJsData }) {
         enableZoom={true}
         enableRotate={true}
         minDistance={3}
-        maxDistance={40}
+        maxDistance={200}
       />
     </>
   );
@@ -100,7 +100,7 @@ export default function ThreeViewer({ threeJsData }) {
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <Canvas
-        camera={{ position: [12, 8, 12], fov: 45 }}
+        camera={{ position: [20, 15, 20], fov: 60 }}
         style={{ width: '100%', height: '100%' }}
       >
         <Scene threeJsData={threeJsData} />
