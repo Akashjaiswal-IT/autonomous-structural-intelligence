@@ -282,25 +282,29 @@ def _label_rooms(rooms: list, walls: list, img_w: int, img_h: int) -> list:
         area_ratio = room["area_px"] / total_area if total_area > 0 else 0
         cx = room["centroid"]["x"]
         cy = room["centroid"]["y"]
+        detected_label = room.get("label", "unknown")
 
-        # Position quadrant
-        left_half = cx < img_w / 2
-        top_half = cy < img_h / 2
-
-        if i == 0:
-            label = "Living Room / Great Room"
-        elif area_ratio > 0.15:
-            label = "Bedroom" if not (left_half and top_half) else "Master Bedroom"
-        elif area_ratio > 0.08:
-            label = "Bedroom"
-        elif area_ratio > 0.04:
-            label = "Kitchen" if (left_half and not top_half) else "Bedroom"
-        elif area_ratio > 0.02:
-            label = "Bathroom"
-        elif area_ratio > 0.01:
-            label = "Laundry / Storage"
+        if detected_label and detected_label.lower() != "unknown":
+            label = detected_label
         else:
-            label = "Foyer / Hallway"
+            # Position quadrant
+            left_half = cx < img_w / 2
+            top_half = cy < img_h / 2
+
+            if i == 0:
+                label = "Living Room / Great Room"
+            elif area_ratio > 0.15:
+                label = "Bedroom" if not (left_half and top_half) else "Master Bedroom"
+            elif area_ratio > 0.08:
+                label = "Bedroom"
+            elif area_ratio > 0.04:
+                label = "Kitchen" if (left_half and not top_half) else "Bedroom"
+            elif area_ratio > 0.02:
+                label = "Bathroom"
+            elif area_ratio > 0.01:
+                label = "Laundry / Storage"
+            else:
+                label = "Foyer / Hallway"
 
         # Avoid duplicate labels with index
         base_label = label

@@ -13,6 +13,9 @@ import json
 import math
 import logging
 import traceback
+import hashlib
+from pathlib import Path
+from datetime import datetime
 from typing import Optional
 
 import numpy as np
@@ -25,9 +28,11 @@ from pipeline.parser import parse_floor_plan, build_manual_result
 from pipeline.geometry import reconstruct_geometry
 from pipeline.material import analyse_materials
 from pipeline.explainer import generate_report
+from pipeline.validator import verify_generated_model
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+UPLOADS_DIR = Path(__file__).resolve().parent / "data" / "uploads"
 
 # ── Numpy JSON Fix ────────────────────────────────────────────────────────────
 
@@ -103,7 +108,12 @@ async def run_pipeline(file: UploadFile = File(...)):
         report = generate_report(material_result, geometry_result)
 
         # Build 3D-ready payload for Three.js
-        three_payload = _build_three_payload(geometry_result)
+        three_payload = _build_three_payload(
+            geometry_result,
+            parse_result.get("openings", []),
+            parse_result.get("labels", []),
+        )
+        verification = verify_generated_model(img, parse_result, three_payload)
 
         payload = {
             "success": True,
@@ -122,9 +132,11 @@ async def run_pipeline(file: UploadFile = File(...)):
                 "structural_concerns": geometry_result.get("structural_concerns", []),
             },
             "three_js": three_payload,
+            "verification": verification,
             "materials": material_result,
             "report": report,
         }
+        payload["storage"] = _persist_analysis(file.filename, contents, payload)
 
         return JSONResponse(to_json_safe(payload))
 
@@ -155,7 +167,11 @@ async def parse_only(file: UploadFile = File(...)):
             "success": True,
             "parse": parse_result,
             "geometry": geometry_result,
-            "three_js": _build_three_payload(geometry_result),
+            "three_js": _build_three_payload(
+                geometry_result,
+                parse_result.get("openings", []),
+                parse_result.get("labels", []),
+            ),
         }
 
         return JSONResponse(to_json_safe(payload))
@@ -195,6 +211,13 @@ async def manual_input(data: dict = Body(...)):
         material_result = analyse_materials(geometry_result)
         report = generate_report(material_result, geometry_result)
         three_payload = _build_three_payload(geometry_result)
+        verification = {
+            "summary": "Verification skipped for manual fallback input.",
+            "confidence": "medium",
+            "issues": [],
+            "counts": {"parsed_windows": 0, "verified_window_candidates": 0, "unmatched_window_candidates": 0, "doors": 0, "labels": 0},
+            "missing_window_candidates": [],
+        }
 
         payload = {
             "success": True,
@@ -207,6 +230,7 @@ async def manual_input(data: dict = Body(...)):
                 "boundary": geometry_result.get("boundary", {}),
             },
             "three_js": three_payload,
+            "verification": verification,
             "materials": material_result,
             "report": report,
         }
@@ -222,7 +246,11 @@ async def manual_input(data: dict = Body(...)):
 
 # ── Three.js Payload Builder ──────────────────────────────────────────────────
 
-def _build_three_payload(geometry_result: dict) -> dict:
+def _build_three_payload(
+    geometry_result: dict,
+    openings: Optional[list] = None,
+    labels: Optional[list] = None,
+) -> dict:
     """
     Convert geometry to Three.js-ready format.
     Coordinates scaled to meters and centered at origin.
@@ -232,8 +260,11 @@ def _build_three_payload(geometry_result: dict) -> dict:
     boundary = geometry_result.get("boundary", {})
     scale = geometry_result.get("scale_px_to_m", 0.05)
 
+    openings = openings or []
+    labels = labels or []
+
     if not walls:
-        return {"walls": [], "rooms": [], "floor_dimensions": {}}
+        return {"walls": [], "rooms": [], "labels": [], "doors": [], "windows": [], "floor_dimensions": {}}
 
     # Center offset — move building to origin
     center_x = (boundary.get("min_x", 0) + boundary.get("max_x", 0)) / 2
@@ -286,9 +317,60 @@ def _build_three_payload(geometry_result: dict) -> dict:
             "area_m2": float(room.get("area_m2", 0)),
         })
 
+    three_doors = []
+    three_windows = []
+    for opening in openings:
+        arc = opening.get("door_arc")
+        if opening.get("type") == "door" and arc:
+            hinge_x = round((float(arc["hinge"]["x"]) - center_x) * scale, 3)
+            hinge_z = round((float(arc["hinge"]["y"]) - center_y) * scale, 3)
+            leaf_x = round((float(arc["leaf_end"]["x"]) - center_x) * scale, 3)
+            leaf_z = round((float(arc["leaf_end"]["y"]) - center_y) * scale, 3)
+            three_doors.append({
+                "id": opening.get("id", f"door_{len(three_doors)}"),
+                "hinge": {"x": hinge_x, "y": 0.03, "z": hinge_z},
+                "leaf_end": {"x": leaf_x, "y": 0.03, "z": leaf_z},
+                "radius_m": round(float(arc["radius_px"]) * scale, 3),
+                "start_angle_rad": round(math.radians(float(arc["start_angle_deg"])), 6),
+                "end_angle_rad": round(math.radians(float(arc["end_angle_deg"])), 6),
+            })
+        elif opening.get("type") == "window":
+            cx = opening.get("center", {}).get("x", (opening["x1"] + opening["x2"]) / 2)
+            cy = opening.get("center", {}).get("y", (opening["y1"] + opening["y2"]) / 2)
+            width_m = max(abs(opening["x2"] - opening["x1"]), abs(opening["y2"] - opening["y1"])) * scale
+            thickness_m = max(min(abs(opening["x2"] - opening["x1"]), abs(opening["y2"] - opening["y1"])) * scale, 0.08)
+            three_windows.append({
+                "id": opening.get("id", f"window_{len(three_windows)}"),
+                "position": {
+                    "x": round((float(cx) - center_x) * scale, 3),
+                    "y": 1.45,
+                    "z": round((float(cy) - center_y) * scale, 3),
+                },
+                "orientation": opening.get("orientation"),
+                "dimensions": {
+                    "width": round(float(width_m), 3),
+                    "height": 1.2,
+                    "depth": round(float(thickness_m), 3),
+                },
+                "edge": opening.get("edge"),
+            })
+
+    three_labels = []
+    for region in labels:
+        cx_m = round((float(region["center"]["x"]) - center_x) * scale, 3)
+        cz_m = round((float(region["center"]["y"]) - center_y) * scale, 3)
+        three_labels.append({
+            "id": f"label_{len(three_labels)}",
+            "text": region.get("text", ""),
+            "position": {"x": cx_m, "y": 0.03, "z": cz_m},
+        })
+
     return {
         "walls": three_walls,
         "rooms": three_rooms,
+        "labels": three_labels,
+        "doors": three_doors,
+        "windows": three_windows,
         "floor_dimensions": {
             "width_m": floor_w_m,
             "depth_m": floor_d_m,
@@ -296,6 +378,51 @@ def _build_three_payload(geometry_result: dict) -> dict:
         },
         "scale_used": float(scale),
     }
+
+
+def _persist_analysis(filename: str, contents: bytes, payload: dict) -> dict:
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    analysis_id = _build_analysis_id(filename, contents)
+    run_dir = UPLOADS_DIR / analysis_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_name = _safe_filename(filename or "upload.png")
+    image_path = run_dir / safe_name
+    json_path = run_dir / "analysis.json"
+    meta_path = run_dir / "meta.json"
+
+    image_path.write_bytes(contents)
+    json_path.write_text(json.dumps(to_json_safe(payload), indent=2), encoding="utf-8")
+    meta_path.write_text(json.dumps({
+        "analysis_id": analysis_id,
+        "original_filename": filename,
+        "saved_at": datetime.utcnow().isoformat() + "Z",
+        "sha256": hashlib.sha256(contents).hexdigest(),
+    }, indent=2), encoding="utf-8")
+
+    return {
+        "analysis_id": analysis_id,
+        "saved": True,
+        "image_path": str(image_path),
+        "analysis_path": str(json_path),
+    }
+
+
+def _build_analysis_id(filename: str, contents: bytes) -> str:
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    digest = hashlib.sha256(contents).hexdigest()[:10]
+    stem = Path(filename or "upload").stem
+    return f"{timestamp}_{_safe_slug(stem)}_{digest}"
+
+
+def _safe_filename(filename: str) -> str:
+    path = Path(filename or "upload.png")
+    return f"{_safe_slug(path.stem)}{path.suffix or '.png'}"
+
+
+def _safe_slug(value: str) -> str:
+    slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")
+    return "-".join(part for part in slug.split("-") if part) or "upload"
 
 
 # ── Run ───────────────────────────────────────────────────────────────────────

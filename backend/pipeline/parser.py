@@ -1,19 +1,23 @@
 """
 Stage 1 & 2: Floor Plan Parser
-- Detects walls (lines), rooms (enclosed regions), openings (doors/windows)
-- Applies all hidden-trap mitigations:
-  * Angle snapping (non-90 degree layouts)
-  * Junction clustering (T vs L corners)
-  * Coordinate rounding (3D handoff quality)
-  * Minimum wall length filtering (removes text, door arcs, noise)
+- Detects walls (single centerlines), rooms, room labels, and openings
+- Suppresses OCR text before wall extraction so labels do not become walls
+- Detects door swing arcs for the 3D viewer
 """
+
+import base64
+import logging
+import re
+from collections import defaultdict
+from typing import Optional
 
 import cv2
 import numpy as np
-from collections import defaultdict
-from typing import Optional
-import base64
-import logging
+
+try:
+    from rapidocr_onnxruntime import RapidOCR
+except Exception:  # pragma: no cover - optional dependency fallback
+    RapidOCR = None
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +32,31 @@ HOUGH_THRESHOLD = 100           # votes required for a line (higher = stricter)
 WALL_THICKNESS_EST = 15         # pixels — estimated wall thickness for 3D
 MIN_WALL_LENGTH_PX = 60         # pixels — post-merge minimum wall length (removes text/noise)
 MAX_WALLS = 80                  # cap — if more than this, apply stricter filtering
+TEXT_MASK_PADDING = 10          # pixels — mask OCR labels before line detection
+PARALLEL_MERGE_DISTANCE = 18    # pixels — collapse double-edge walls into one centerline
+OPENING_MIN_PX = 24             # pixels — minimum gap to be considered an opening
+OPENING_MAX_PX = 140            # pixels — maximum door/window width in plan pixels
+DOOR_SEARCH_PADDING = 40        # pixels — ROI around candidate opening for arc search
+OCR_CONFIDENCE_MIN = 0.45
+WINDOW_EDGE_MARGIN = 90         # pixels — boundary band for window symbols
+WINDOW_SYMBOL_THICKNESS_MAX = 14
+WINDOW_SYMBOL_LENGTH_MIN = 24
+WINDOW_SYMBOL_LENGTH_MAX = 180
+WINDOW_PAIR_DISTANCE_MIN = 2
+WINDOW_PAIR_DISTANCE_MAX = 14
+
+ROOM_WORDS = [
+    "GREAT", "ROOM", "KITCHEN", "BEDROOM", "BATHROOM", "BATH", "FOYER",
+    "LAUNDRY", "ENTRY", "LIVING", "DINING", "MASTER", "GARAGE", "HALL",
+    "PANTRY", "STORE", "STUDY", "OFFICE",
+]
+COMMON_ROOM_LABELS = [
+    "GREAT ROOM", "KITCHEN", "BEDROOM", "BATHROOM", "BATH", "FOYER",
+    "LAUNDRY", "ENTRY", "LIVING ROOM", "DINING ROOM", "MASTER BEDROOM",
+    "GARAGE", "HALL", "PANTRY", "STUDY", "OFFICE",
+]
+
+_OCR_ENGINE = None
 
 
 # ── Main Entry Point ─────────────────────────────────────────────────────────
@@ -49,7 +78,8 @@ def parse_floor_plan(image_input) -> dict:
     logger.info(f"Parsing image: {w}x{h}px")
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    edges = _detect_edges(gray)
+    text_regions = _extract_text_regions(img)
+    edges = _detect_edges(gray, text_regions)
     raw_lines = _detect_lines(edges)
 
     if raw_lines is None or len(raw_lines) == 0:
@@ -61,6 +91,7 @@ def parse_floor_plan(image_input) -> dict:
 
     # Mitigation 2: merge duplicate/overlapping lines
     merged_lines = _merge_collinear_lines(snapped_lines)
+    merged_lines = _collapse_parallel_walls(merged_lines)
 
     # Mitigation 3: filter out short segments (text, door arcs, window markers, noise).
     # Use a relative threshold — a segment shorter than 3% of the image diagonal is
@@ -89,31 +120,22 @@ def parse_floor_plan(image_input) -> dict:
 
     # Mitigation 5: cluster endpoints into clean junctions
     junctions, wall_segments = _build_junctions(merged_lines)
+    wall_segments = _normalize_walls(wall_segments)
 
-    # Mitigation 5b: remove floating walls — segments where BOTH endpoints are
-    # degree-1 (isolated "endpoint" junctions with no neighbour).  These are
-    # noise lines that were never part of the wall network (window headers,
-    # text underlines, stray Hough hits).  A real wall always connects to at
-    # least one other wall at one end.
-    connected_wall_ids = set()
-    for junc in junctions:
-        if junc["degree"] >= 2:
-            for wid in junc["connected_walls"]:
-                connected_wall_ids.add(wid)
-
-    wall_segments = [
-        wall for i, wall in enumerate(wall_segments)
-        if i in connected_wall_ids
-    ]
-    # Re-index wall ids after filtering
-    for i, wall in enumerate(wall_segments):
-        wall["id"] = f"wall_{i}"
+    # Mitigation 5b: with OCR text already removed, we can keep degree-1 walls.
+    # Many real plan segments terminate at doors, plan cut-outs, or image crops.
+    wall_segments = _collapse_parallel_walls(wall_segments)
+    wall_segments = _deduplicate_walls(wall_segments)
 
     # Extract room polygons from enclosed regions
     rooms = _extract_rooms(edges, img.shape)
+    rooms = _assign_text_to_rooms(rooms, text_regions)
 
-    # Detect openings (doors/windows) — gap detection in walls
-    openings = _detect_openings(merged_lines, edges)
+    # Detect openings and door swing arcs
+    openings = _detect_openings(wall_segments)
+    openings = _attach_door_arcs(gray, text_regions, openings)
+    windows = _detect_windows(gray, text_regions, img.shape)
+    openings.extend(windows)
 
     # Scale factor: convert pixels to meters
     scale_px_to_m = _estimate_scale(img, gray)
@@ -121,6 +143,8 @@ def parse_floor_plan(image_input) -> dict:
     # Mitigation 6: round all coordinates to integers for clean 3D handoff
     wall_segments = _round_coordinates(wall_segments)
     junctions = _round_coordinates(junctions)
+    rooms = _round_room_data(rooms)
+    openings = _round_openings(openings)
 
     result = {
         "image_size": {"width": w, "height": h},
@@ -129,11 +153,14 @@ def parse_floor_plan(image_input) -> dict:
         "junctions": junctions,
         "rooms": rooms,
         "openings": openings,
+        "labels": text_regions,
         "stats": {
             "total_walls": len(wall_segments),
             "total_rooms": len(rooms),
             "total_junctions": len(junctions),
             "total_openings": len(openings),
+            "total_doors": sum(1 for opening in openings if opening.get("type") == "door"),
+            "total_windows": sum(1 for opening in openings if opening.get("type") == "window"),
         },
         "fallback_used": False,
     }
@@ -165,35 +192,33 @@ def _load_image(image_input):
 
 # ── Edge Detection ────────────────────────────────────────────────────────────
 
-def _detect_edges(gray: np.ndarray) -> np.ndarray:
+def _detect_edges(gray: np.ndarray, text_regions: Optional[list] = None) -> np.ndarray:
     """
     Multi-step edge detection optimised for clean digital floor plans.
     Uses stronger blur to suppress text and thin lines.
     """
-    # Stronger blur to suppress text and fine noise
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    # Adaptive thresholding
     thresh = cv2.adaptiveThreshold(
         blurred, 255,
         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
         cv2.THRESH_BINARY_INV, 15, 4
     )
+    if text_regions:
+        thresh = _mask_text_regions(thresh, text_regions, TEXT_MASK_PADDING)
 
-    # Canny with higher thresholds to focus on strong edges (walls, not text)
     edges_canny = cv2.Canny(blurred, 80, 200, apertureSize=3)
+    if text_regions:
+        edges_canny = _mask_text_regions(edges_canny, text_regions, TEXT_MASK_PADDING)
 
-    # Combine both
     combined = cv2.bitwise_or(thresh, edges_canny)
 
-    # Morphological cleanup — close small gaps in walls
-    # Larger kernel removes isolated text pixels
     kernel = np.ones((3, 3), np.uint8)
     cleaned = cv2.morphologyEx(combined, cv2.MORPH_CLOSE, kernel)
 
-    # Erode slightly to thin out fat edges from text
     erode_kernel = np.ones((2, 2), np.uint8)
     cleaned = cv2.erode(cleaned, erode_kernel, iterations=1)
+    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
 
     return cleaned
 
@@ -276,6 +301,78 @@ def _merge_collinear_lines(lines: list, gap_threshold: int = 20) -> list:
         merged.extend(_merge_segments_1d(segments, gap_threshold, axis='v', fixed=x))
 
     return merged
+
+
+def _collapse_parallel_walls(lines: list, distance_threshold: int = PARALLEL_MERGE_DISTANCE) -> list:
+    """Collapse the two detected faces of a thick wall into one centerline."""
+    horizontal = [wall for wall in lines if wall["orientation"] == "horizontal"]
+    vertical = [wall for wall in lines if wall["orientation"] == "vertical"]
+    merged = []
+    merged.extend(_collapse_parallel_group(horizontal, distance_threshold, axis="horizontal"))
+    merged.extend(_collapse_parallel_group(vertical, distance_threshold, axis="vertical"))
+    return merged
+
+
+def _collapse_parallel_group(lines: list, distance_threshold: int, axis: str) -> list:
+    if not lines:
+        return []
+
+    fixed_key = "y1" if axis == "horizontal" else "x1"
+    start_key = "x1" if axis == "horizontal" else "y1"
+    end_key = "x2" if axis == "horizontal" else "y2"
+
+    ordered = sorted(lines, key=lambda line: (line[fixed_key], line[start_key], line[end_key]))
+    used = set()
+    collapsed = []
+
+    for i, wall in enumerate(ordered):
+        if i in used:
+            continue
+
+        cluster = [wall]
+        used.add(i)
+        w_start = min(wall[start_key], wall[end_key])
+        w_end = max(wall[start_key], wall[end_key])
+
+        for j in range(i + 1, len(ordered)):
+            other = ordered[j]
+            if j in used:
+                continue
+            if abs(other[fixed_key] - wall[fixed_key]) > distance_threshold:
+                if other[fixed_key] - wall[fixed_key] > distance_threshold:
+                    break
+                continue
+
+            o_start = min(other[start_key], other[end_key])
+            o_end = max(other[start_key], other[end_key])
+            overlap = min(w_end, o_end) - max(w_start, o_start)
+            if overlap >= min(w_end - w_start, o_end - o_start) * 0.45:
+                cluster.append(other)
+                used.add(j)
+
+        center = round(float(np.mean([item[fixed_key] for item in cluster])))
+        intervals = [
+            (min(item[start_key], item[end_key]), max(item[start_key], item[end_key]))
+            for item in cluster
+        ]
+
+        for start, end in _merge_intervals(intervals, gap=MAX_LINE_GAP + 4):
+            collapsed.append(_seg_to_wall(start, end, "h" if axis == "horizontal" else "v", center))
+
+    return collapsed
+
+
+def _merge_intervals(intervals: list, gap: int) -> list:
+    if not intervals:
+        return []
+    ordered = sorted(intervals)
+    merged = [list(ordered[0])]
+    for start, end in ordered[1:]:
+        if start <= merged[-1][1] + gap:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [(start, end) for start, end in merged]
 
 
 def _merge_segments_1d(segments: list, gap: int, axis: str, fixed: int) -> list:
@@ -375,6 +472,52 @@ def _build_junctions(walls: list) -> tuple:
     return junctions, walls
 
 
+def _normalize_walls(walls: list) -> list:
+    normalized = []
+    for wall in walls:
+        fixed = dict(wall)
+        if fixed["orientation"] == "horizontal":
+            y = int(round((fixed["y1"] + fixed["y2"]) / 2))
+            x1, x2 = sorted((int(round(fixed["x1"])), int(round(fixed["x2"]))))
+            if x2 - x1 <= 0:
+                continue
+            fixed["x1"], fixed["x2"] = x1, x2
+            fixed["y1"] = fixed["y2"] = y
+            fixed["length_px"] = x2 - x1
+        else:
+            x = int(round((fixed["x1"] + fixed["x2"]) / 2))
+            y1, y2 = sorted((int(round(fixed["y1"])), int(round(fixed["y2"]))))
+            if y2 - y1 <= 0:
+                continue
+            fixed["x1"] = fixed["x2"] = x
+            fixed["y1"], fixed["y2"] = y1, y2
+            fixed["length_px"] = y2 - y1
+        normalized.append(fixed)
+    return normalized
+
+
+def _deduplicate_walls(walls: list) -> list:
+    deduped = {}
+    for wall in _normalize_walls(walls):
+        key = (
+            wall["orientation"],
+            wall["x1"], wall["y1"], wall["x2"], wall["y2"],
+        )
+        existing = deduped.get(key)
+        if existing is None or wall["length_px"] > existing["length_px"]:
+            deduped[key] = wall
+
+    unique = sorted(
+        deduped.values(),
+        key=lambda wall: (
+            wall["orientation"],
+            wall["y1"] if wall["orientation"] == "horizontal" else wall["x1"],
+            wall["x1"] if wall["orientation"] == "horizontal" else wall["y1"],
+        ),
+    )
+    for i, wall in enumerate(unique):
+        wall["id"] = f"wall_{i}"
+    return unique
 # ── Room Extraction ───────────────────────────────────────────────────────────
 
 def _extract_rooms(edges: np.ndarray, img_shape: tuple) -> list:
@@ -425,17 +568,30 @@ def _extract_rooms(edges: np.ndarray, img_shape: tuple) -> list:
     return rooms[:20]
 
 
+def _assign_text_to_rooms(rooms: list, text_regions: list) -> list:
+    if not rooms or not text_regions:
+        return rooms
+
+    for region in text_regions:
+        room = _find_room_for_point(rooms, region["center"])
+        if room is None:
+            continue
+        if room.get("label", "unknown").lower() == "unknown":
+            room["label"] = region["text"]
+        else:
+            room["label"] = _merge_room_labels(room["label"], region["text"])
+
+    return rooms
+
+
 # ── Opening Detection ─────────────────────────────────────────────────────────
 
-def _detect_openings(walls: list, edges: np.ndarray) -> list:
+def _detect_openings(walls: list) -> list:
     """
     Detect gaps in walls (doors/windows).
     A gap = two collinear wall segments with a space between them.
     """
     openings = []
-    MIN_OPENING = 20
-    MAX_OPENING = 120
-
     h_walls = defaultdict(list)
     v_walls = defaultdict(list)
 
@@ -449,33 +605,364 @@ def _detect_openings(walls: list, edges: np.ndarray) -> list:
         segs_sorted = sorted(segs, key=lambda s: s["x1"])
         for i in range(len(segs_sorted) - 1):
             gap = segs_sorted[i + 1]["x1"] - segs_sorted[i]["x2"]
-            if MIN_OPENING <= gap <= MAX_OPENING:
+            if OPENING_MIN_PX <= gap <= OPENING_MAX_PX:
                 openings.append({
+                    "id": f"opening_{len(openings)}",
                     "type": "opening",
                     "orientation": "horizontal",
                     "x1": segs_sorted[i]["x2"],
                     "y1": y,
                     "x2": segs_sorted[i + 1]["x1"],
                     "y2": y,
-                    "width_px": gap
+                    "width_px": gap,
+                    "hinge_candidates": [
+                        {"x": segs_sorted[i]["x2"], "y": y},
+                        {"x": segs_sorted[i + 1]["x1"], "y": y},
+                    ],
                 })
 
     for x, segs in v_walls.items():
         segs_sorted = sorted(segs, key=lambda s: s["y1"])
         for i in range(len(segs_sorted) - 1):
             gap = segs_sorted[i + 1]["y1"] - segs_sorted[i]["y2"]
-            if MIN_OPENING <= gap <= MAX_OPENING:
+            if OPENING_MIN_PX <= gap <= OPENING_MAX_PX:
                 openings.append({
+                    "id": f"opening_{len(openings)}",
                     "type": "opening",
                     "orientation": "vertical",
                     "x1": x,
                     "y1": segs_sorted[i]["y2"],
                     "x2": x,
                     "y2": segs_sorted[i + 1]["y1"],
-                    "width_px": gap
+                    "width_px": gap,
+                    "hinge_candidates": [
+                        {"x": x, "y": segs_sorted[i]["y2"]},
+                        {"x": x, "y": segs_sorted[i + 1]["y1"]},
+                    ],
                 })
 
     return openings
+
+
+def _attach_door_arcs(gray: np.ndarray, text_regions: list, openings: list) -> list:
+    if not openings:
+        return openings
+
+    image_shape = gray.shape
+    symbol_mask = cv2.adaptiveThreshold(
+        cv2.GaussianBlur(gray, (3, 3), 0),
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV, 15, 4
+    )
+    symbol_mask = _mask_text_regions(symbol_mask, text_regions, TEXT_MASK_PADDING)
+    contours, _ = cv2.findContours(symbol_mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+
+    for opening in openings:
+        arc = _find_door_arc_for_opening(opening, contours)
+        if arc is None:
+            arc = _synthesise_door_arc(opening, image_shape)
+        if arc:
+            opening["type"] = "door"
+            opening["door_arc"] = arc
+        else:
+            opening["type"] = "opening"
+
+    return openings
+
+
+def _detect_windows(gray: np.ndarray, text_regions: list, image_shape: tuple, relaxed: bool = False) -> list:
+    mask = cv2.adaptiveThreshold(
+        cv2.GaussianBlur(gray, (3, 3), 0),
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV, 15, 4
+    )
+    mask = _mask_text_regions(mask, text_regions, TEXT_MASK_PADDING)
+    lines = cv2.HoughLinesP(
+        mask,
+        rho=1,
+        theta=np.pi / 180,
+        threshold=16 if relaxed else 20,
+        minLineLength=16 if relaxed else 20,
+        maxLineGap=5 if relaxed else 4,
+    )
+    if lines is None:
+        return []
+
+    image_h, image_w = image_shape[:2]
+    edge_margin = WINDOW_EDGE_MARGIN + (20 if relaxed else 0)
+
+    horizontal = []
+    vertical = []
+    for raw in lines[:, 0]:
+        x1, y1, x2, y2 = [int(v) for v in raw]
+        dx = abs(x2 - x1)
+        dy = abs(y2 - y1)
+        if dx >= dy and WINDOW_SYMBOL_LENGTH_MIN <= dx <= WINDOW_SYMBOL_LENGTH_MAX and dy <= 4:
+            y = round((y1 + y2) / 2)
+            near_edge = "top" if y <= edge_margin else "bottom" if y >= image_h - edge_margin else None
+            if near_edge:
+                horizontal.append({
+                    "edge": near_edge,
+                    "start": min(x1, x2),
+                    "end": max(x1, x2),
+                    "fixed": y,
+                })
+        elif dy > dx and WINDOW_SYMBOL_LENGTH_MIN <= dy <= WINDOW_SYMBOL_LENGTH_MAX and dx <= 4:
+            x = round((x1 + x2) / 2)
+            near_edge = "left" if x <= edge_margin else "right" if x >= image_w - edge_margin else None
+            if near_edge:
+                vertical.append({
+                    "edge": near_edge,
+                    "start": min(y1, y2),
+                    "end": max(y1, y2),
+                    "fixed": x,
+                })
+
+    windows = []
+    windows.extend(_build_window_candidates(horizontal, axis="horizontal"))
+    windows.extend(_build_window_candidates(vertical, axis="vertical"))
+    merged = _merge_window_candidates(windows)
+    filtered = [
+        window for window in merged
+        if _is_reasonable_window_candidate(window, image_w, image_h)
+    ]
+    return _deduplicate_openings_by_bbox(filtered)
+
+
+def _build_window_candidates(lines: list, axis: str) -> list:
+    candidates = []
+    for i, line in enumerate(lines):
+        for other in lines[i + 1:]:
+            if line["edge"] != other["edge"]:
+                continue
+            distance = abs(line["fixed"] - other["fixed"])
+            if not (WINDOW_PAIR_DISTANCE_MIN <= distance <= WINDOW_PAIR_DISTANCE_MAX):
+                continue
+            overlap_start = max(line["start"], other["start"])
+            overlap_end = min(line["end"], other["end"])
+            overlap = overlap_end - overlap_start
+            if overlap < WINDOW_SYMBOL_LENGTH_MIN:
+                continue
+
+            if axis == "horizontal":
+                x1 = overlap_start
+                x2 = overlap_end
+                y1 = min(line["fixed"], other["fixed"])
+                y2 = max(line["fixed"], other["fixed"])
+                orientation = "horizontal"
+                center = {"x": round((x1 + x2) / 2), "y": round((y1 + y2) / 2)}
+            else:
+                x1 = min(line["fixed"], other["fixed"])
+                x2 = max(line["fixed"], other["fixed"])
+                y1 = overlap_start
+                y2 = overlap_end
+                orientation = "vertical"
+                center = {"x": round((x1 + x2) / 2), "y": round((y1 + y2) / 2)}
+
+            if (x2 - x1) > WINDOW_SYMBOL_LENGTH_MAX or (y2 - y1) > WINDOW_SYMBOL_LENGTH_MAX:
+                continue
+            if min(x2 - x1, y2 - y1) > WINDOW_SYMBOL_THICKNESS_MAX and max(x2 - x1, y2 - y1) < 2 * WINDOW_SYMBOL_LENGTH_MIN:
+                continue
+
+            candidates.append({
+                "type": "window",
+                "orientation": orientation,
+                "edge": line["edge"],
+                "x1": x1,
+                "y1": y1,
+                "x2": x2,
+                "y2": y2,
+                "width_px": max(x2 - x1, y2 - y1),
+                "center": center,
+                "bbox": {"x": x1, "y": y1, "width": max(1, x2 - x1), "height": max(1, y2 - y1)},
+            })
+    return candidates
+
+
+def _merge_window_candidates(candidates: list) -> list:
+    merged = []
+    for candidate in sorted(candidates, key=lambda item: (item["edge"], item["x1"], item["y1"])):
+        matched = False
+        for existing in merged:
+            if existing["edge"] != candidate["edge"]:
+                continue
+            if _window_overlap(existing, candidate):
+                existing["x1"] = min(existing["x1"], candidate["x1"])
+                existing["y1"] = min(existing["y1"], candidate["y1"])
+                existing["x2"] = max(existing["x2"], candidate["x2"])
+                existing["y2"] = max(existing["y2"], candidate["y2"])
+                existing["width_px"] = max(existing["x2"] - existing["x1"], existing["y2"] - existing["y1"])
+                existing["center"] = {
+                    "x": round((existing["x1"] + existing["x2"]) / 2),
+                    "y": round((existing["y1"] + existing["y2"]) / 2),
+                }
+                existing["bbox"] = {
+                    "x": existing["x1"],
+                    "y": existing["y1"],
+                    "width": max(1, existing["x2"] - existing["x1"]),
+                    "height": max(1, existing["y2"] - existing["y1"]),
+                }
+                matched = True
+                break
+        if not matched:
+            merged.append(dict(candidate))
+    return merged
+
+
+def _window_overlap(a: dict, b: dict) -> bool:
+    ax1, ay1, ax2, ay2 = a["x1"], a["y1"], a["x2"], a["y2"]
+    bx1, by1, bx2, by2 = b["x1"], b["y1"], b["x2"], b["y2"]
+    return (
+        min(ax2, bx2) - max(ax1, bx1) >= -8 and
+        min(ay2, by2) - max(ay1, by1) >= -8
+    )
+
+
+def _deduplicate_openings_by_bbox(openings: list) -> list:
+    unique = []
+    for opening in openings:
+        if any(_window_overlap(opening, other) for other in unique):
+            continue
+        unique.append(opening)
+    for i, opening in enumerate(unique):
+        if opening.get("type") == "window":
+            opening["id"] = f"window_{i}"
+    return unique
+
+
+def _is_reasonable_window_candidate(window: dict, image_w: int, image_h: int) -> bool:
+    span = max(abs(window["x2"] - window["x1"]), abs(window["y2"] - window["y1"]))
+    thickness = max(1, min(abs(window["x2"] - window["x1"]), abs(window["y2"] - window["y1"])))
+    center = window.get("center", {"x": 0, "y": 0})
+    edge = window.get("edge")
+
+    if edge in {"left", "right"}:
+        if not (80 <= span <= 150 and 2 <= thickness <= 16):
+            return False
+        if center["y"] >= image_h * 0.8:
+            return False
+    elif edge == "top":
+        if not (35 <= span <= 140 and 2 <= thickness <= 12):
+            return False
+    elif edge == "bottom":
+        if not (35 <= span <= 110 and 2 <= thickness <= 12):
+            return False
+        if abs(center["x"] - image_w / 2) < image_w * 0.12:
+            return False
+
+    return True
+
+
+def _find_door_arc_for_opening(opening: dict, contours: list) -> Optional[dict]:
+    x_min = min(opening["x1"], opening["x2"]) - DOOR_SEARCH_PADDING
+    x_max = max(opening["x1"], opening["x2"]) + DOOR_SEARCH_PADDING
+    y_min = min(opening["y1"], opening["y2"]) - DOOR_SEARCH_PADDING
+    y_max = max(opening["y1"], opening["y2"]) + DOOR_SEARCH_PADDING
+
+    best = None
+    expected_radius = max(opening["width_px"], OPENING_MIN_PX)
+
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        if x + w < x_min or x > x_max or y + h < y_min or y > y_max:
+            continue
+        if max(w, h) < OPENING_MIN_PX or max(w, h) > OPENING_MAX_PX * 1.8:
+            continue
+
+        points = contour.reshape(-1, 2).astype(np.float32)
+        if len(points) < 12:
+            continue
+
+        for hinge in opening["hinge_candidates"]:
+            center = np.array([hinge["x"], hinge["y"]], dtype=np.float32)
+            dists = np.linalg.norm(points - center, axis=1)
+            radius = float(np.median(dists))
+            radius_std = float(np.std(dists))
+            if radius < OPENING_MIN_PX * 0.7 or radius > OPENING_MAX_PX * 1.35:
+                continue
+            if abs(radius - expected_radius) > max(18, expected_radius * 0.45):
+                continue
+            if radius_std > max(10, radius * 0.22):
+                continue
+
+            free_end = _other_hinge_candidate(opening, hinge)
+            start_angle = np.arctan2(free_end["y"] - hinge["y"], free_end["x"] - hinge["x"])
+            centroid = points.mean(axis=0)
+            centroid_angle = np.arctan2(centroid[1] - hinge["y"], centroid[0] - hinge["x"])
+            sweep = _choose_quarter_turn(start_angle, centroid_angle)
+            end_angle = start_angle + sweep
+
+            score = radius_std + abs(radius - expected_radius) * 0.25
+            if best is None or score < best["score"]:
+                end_point = {
+                    "x": round(float(hinge["x"] + np.cos(end_angle) * radius)),
+                    "y": round(float(hinge["y"] + np.sin(end_angle) * radius)),
+                }
+                best = {
+                    "score": score,
+                    "hinge": {"x": int(hinge["x"]), "y": int(hinge["y"])},
+                    "radius_px": round(radius, 2),
+                    "start_angle_deg": round(np.degrees(start_angle), 2),
+                    "end_angle_deg": round(np.degrees(end_angle), 2),
+                    "leaf_end": end_point,
+                }
+
+    if not best:
+        return None
+
+    return {
+        "hinge": best["hinge"],
+        "radius_px": best["radius_px"],
+        "start_angle_deg": best["start_angle_deg"],
+        "end_angle_deg": best["end_angle_deg"],
+        "leaf_end": best["leaf_end"],
+    }
+
+
+def _synthesise_door_arc(opening: dict, image_shape: tuple) -> dict:
+    image_h, image_w = image_shape[:2]
+    image_center = np.array([image_w / 2, image_h / 2], dtype=np.float32)
+    radius = float(max(opening["width_px"], OPENING_MIN_PX))
+    best = None
+
+    for hinge in opening["hinge_candidates"]:
+        free_end = _other_hinge_candidate(opening, hinge)
+        start_angle = np.arctan2(free_end["y"] - hinge["y"], free_end["x"] - hinge["x"])
+
+        for sweep in (np.pi / 2, -np.pi / 2):
+            end_angle = start_angle + sweep
+            probe = np.array([
+                hinge["x"] + np.cos(start_angle + sweep / 2) * radius * 0.75,
+                hinge["y"] + np.sin(start_angle + sweep / 2) * radius * 0.75,
+            ], dtype=np.float32)
+
+            outside_penalty = 0.0
+            if probe[0] < 0 or probe[0] > image_w or probe[1] < 0 or probe[1] > image_h:
+                outside_penalty = 10000.0
+
+            score = float(np.linalg.norm(probe - image_center)) + outside_penalty
+            if best is None or score < best["score"]:
+                best = {
+                    "score": score,
+                    "hinge": {"x": int(hinge["x"]), "y": int(hinge["y"])},
+                    "radius_px": round(radius, 2),
+                    "start_angle_deg": round(np.degrees(start_angle), 2),
+                    "end_angle_deg": round(np.degrees(end_angle), 2),
+                    "leaf_end": {
+                        "x": round(float(hinge["x"] + np.cos(end_angle) * radius)),
+                        "y": round(float(hinge["y"] + np.sin(end_angle) * radius)),
+                    },
+                }
+
+    return {
+        "hinge": best["hinge"],
+        "radius_px": best["radius_px"],
+        "start_angle_deg": best["start_angle_deg"],
+        "end_angle_deg": best["end_angle_deg"],
+        "leaf_end": best["leaf_end"],
+    }
 
 
 # ── Scale Estimation ──────────────────────────────────────────────────────────
@@ -500,13 +987,229 @@ def _round_coordinates(items: list) -> list:
     return items
 
 
+def _round_room_data(rooms: list) -> list:
+    for room in rooms:
+        _round_coordinates([room["centroid"]])
+        for point in room.get("polygon", []):
+            point[0] = int(round(point[0]))
+            point[1] = int(round(point[1]))
+        bbox = room.get("bounding_box", {})
+        for key in ("x", "y", "width", "height"):
+            if key in bbox:
+                bbox[key] = int(round(bbox[key]))
+    return rooms
+
+
+def _round_openings(openings: list) -> list:
+    for opening in openings:
+        _round_coordinates([opening])
+        if opening.get("center"):
+            _round_coordinates([opening["center"]])
+        if opening.get("bbox"):
+            bbox = opening["bbox"]
+            for key in ("x", "y", "width", "height"):
+                if key in bbox:
+                    bbox[key] = int(round(bbox[key]))
+        for hinge in opening.get("hinge_candidates", []):
+            hinge["x"] = int(round(hinge["x"]))
+            hinge["y"] = int(round(hinge["y"]))
+        if opening.get("door_arc"):
+            arc = opening["door_arc"]
+            _round_coordinates([arc["hinge"], arc["leaf_end"]])
+            arc["radius_px"] = round(float(arc["radius_px"]), 2)
+            arc["start_angle_deg"] = round(float(arc["start_angle_deg"]), 2)
+            arc["end_angle_deg"] = round(float(arc["end_angle_deg"]), 2)
+    return openings
+
+
+def _extract_text_regions(img: np.ndarray) -> list:
+    engine = _get_ocr_engine()
+    if engine is None:
+        return []
+
+    try:
+        results, _ = engine(img)
+    except Exception as exc:  # pragma: no cover - OCR engine runtime issue
+        logger.warning("OCR failed: %s", exc)
+        return []
+
+    text_regions = []
+    for item in results or []:
+        points, text, confidence = item
+        if confidence < OCR_CONFIDENCE_MIN:
+            continue
+        polygon = np.array(points, dtype=np.float32)
+        x, y, w, h = cv2.boundingRect(polygon.astype(np.int32))
+        if w < 20 or h < 10:
+            continue
+        cleaned = _normalise_room_text(text)
+        if not cleaned:
+            continue
+        text_regions.append({
+            "text": cleaned,
+            "confidence": float(confidence),
+            "bounding_box": {"x": x, "y": y, "width": w, "height": h},
+            "center": {"x": round(x + w / 2), "y": round(y + h / 2)},
+            "polygon": polygon.astype(np.int32).tolist(),
+        })
+
+    return text_regions
+
+
+def _get_ocr_engine():
+    global _OCR_ENGINE
+    if _OCR_ENGINE is not None:
+        return _OCR_ENGINE
+    if RapidOCR is None:
+        return None
+    try:
+        _OCR_ENGINE = RapidOCR()
+    except Exception as exc:  # pragma: no cover - model init issue
+        logger.warning("RapidOCR unavailable: %s", exc)
+        _OCR_ENGINE = None
+    return _OCR_ENGINE
+
+
+def _mask_text_regions(mask: np.ndarray, text_regions: list, padding: int) -> np.ndarray:
+    result = mask.copy()
+    height, width = result.shape[:2]
+    for region in text_regions:
+        box = region["bounding_box"]
+        x1 = max(0, box["x"] - padding)
+        y1 = max(0, box["y"] - padding)
+        x2 = min(width - 1, box["x"] + box["width"] + padding)
+        y2 = min(height - 1, box["y"] + box["height"] + padding)
+        cv2.rectangle(result, (x1, y1), (x2, y2), 0, thickness=-1)
+    return result
+
+
+def _find_room_for_point(rooms: list, point: dict):
+    best = None
+    best_distance = None
+    px, py = point["x"], point["y"]
+
+    for room in rooms:
+        polygon = np.array(room.get("polygon", []), dtype=np.int32)
+        if len(polygon) >= 3 and cv2.pointPolygonTest(polygon, (px, py), False) >= 0:
+            return room
+
+    for room in rooms:
+        centroid = room["centroid"]
+        distance = (centroid["x"] - px) ** 2 + (centroid["y"] - py) ** 2
+        if best is None or distance < best_distance:
+            best = room
+            best_distance = distance
+
+    return best
+
+
+def _merge_room_labels(existing: str, incoming: str) -> str:
+    existing_parts = [part.strip() for part in existing.split("/") if part.strip()]
+    if incoming not in existing_parts:
+        existing_parts.append(incoming)
+    return " / ".join(existing_parts)
+
+
+def _normalise_room_text(text: str) -> str:
+    token = re.sub(r"[^A-Za-z0-9]", "", (text or "").upper())
+    if not token:
+        return ""
+
+    if token.isdigit():
+        return ""
+
+    words = []
+    remaining = token
+    while remaining:
+        matched = None
+        for word in sorted(ROOM_WORDS, key=len, reverse=True):
+            if remaining.startswith(word):
+                matched = word
+                break
+        if matched:
+            words.append(_correct_word(matched))
+            remaining = remaining[len(matched):]
+            continue
+
+        if remaining[0].isdigit():
+            digits = re.match(r"\d+", remaining).group(0)
+            words.append(digits)
+            remaining = remaining[len(digits):]
+            continue
+
+        best = _best_room_word(remaining)
+        if best:
+            words.append(best)
+            remaining = remaining[len(best.replace(" ", "")):]
+            continue
+
+        words.append(remaining[0])
+        remaining = remaining[1:]
+
+    joined = " ".join(part for part in words if part)
+    joined = re.sub(r"\s+", " ", joined).strip()
+    return joined
+
+
+def _correct_word(word: str) -> str:
+    replacements = {
+        "BEDROOM": "BEDROOM",
+        "BATHROOM": "BATHROOM",
+        "BATH": "BATH",
+        "FOYER": "FOYER",
+        "KITCHEN": "KITCHEN",
+        "LAUNDRY": "LAUNDRY",
+        "ENTRY": "ENTRY",
+        "ROOM": "ROOM",
+        "GREAT": "GREAT",
+        "LIVING": "LIVING",
+        "DINING": "DINING",
+        "MASTER": "MASTER",
+        "GARAGE": "GARAGE",
+        "HALL": "HALL",
+        "PANTRY": "PANTRY",
+        "STUDY": "STUDY",
+        "OFFICE": "OFFICE",
+    }
+    return replacements.get(word, word)
+
+
+def _best_room_word(token: str) -> Optional[str]:
+    best = None
+    best_score = None
+    for label in COMMON_ROOM_LABELS:
+        candidate = label.replace(" ", "")
+        segment = token[:len(candidate)]
+        if len(segment) != len(candidate):
+            continue
+        score = sum(a != b for a, b in zip(segment, candidate))
+        if best is None or score < best_score:
+            best = label
+            best_score = score
+    if best_score is not None and best_score <= 2:
+        return best
+    return None
+
+
+def _other_hinge_candidate(opening: dict, hinge: dict) -> dict:
+    for candidate in opening["hinge_candidates"]:
+        if candidate["x"] != hinge["x"] or candidate["y"] != hinge["y"]:
+            return candidate
+    return opening["hinge_candidates"][0]
+
+
+def _choose_quarter_turn(start_angle: float, centroid_angle: float) -> float:
+    delta = np.arctan2(np.sin(centroid_angle - start_angle), np.cos(centroid_angle - start_angle))
+    return np.pi / 2 if delta >= 0 else -np.pi / 2
+
+
 def _empty_result(w: int, h: int) -> dict:
     return {
         "image_size": {"width": w, "height": h},
         "scale_px_to_m": 0.05,
-        "walls": [], "junctions": [], "rooms": [], "openings": [],
+        "walls": [], "junctions": [], "rooms": [], "openings": [], "labels": [],
         "stats": {"total_walls": 0, "total_rooms": 0,
-                  "total_junctions": 0, "total_openings": 0},
+                  "total_junctions": 0, "total_openings": 0, "total_doors": 0, "total_windows": 0},
         "fallback_used": True,
     }
 
@@ -530,7 +1233,8 @@ def build_manual_result(walls: list, image_size: dict) -> dict:
         "junctions": [],
         "rooms": [],
         "openings": [],
+        "labels": [],
         "stats": {"total_walls": len(walls), "total_rooms": 0,
-                  "total_junctions": 0, "total_openings": 0},
+                  "total_junctions": 0, "total_openings": 0, "total_doors": 0, "total_windows": 0},
         "fallback_used": True,
     }

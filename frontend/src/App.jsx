@@ -246,6 +246,16 @@ function ResultsDashboard({ result, onReset }) {
         </div>
       )}
 
+      {!!result?.verification?.issues?.length && (
+        <div style={{ background: 'rgba(255,120,120,0.08)', borderBottom: '1px solid rgba(255,120,120,0.2)', padding: '0.45rem 2rem', display: 'flex', alignItems: 'center', gap: '1.25rem', fontSize: '0.6rem', letterSpacing: '1.4px', flexShrink: 0 }}>
+          <span style={{ color: 'rgba(255,145,145,0.95)' }}>MODEL CHECK</span>
+          <span style={{ color: 'rgba(255,200,200,0.75)' }}>{result.verification.summary}</span>
+          <span style={{ color: 'rgba(255,180,180,0.55)' }}>
+            MISSING WINDOW CANDIDATES: {result.verification.counts?.unmatched_window_candidates ?? 0}
+          </span>
+        </div>
+      )}
+
       {/* Panel tabs */}
       <div style={{ borderBottom: '1px solid rgba(0,255,255,0.1)', padding: '0 2rem', display: 'flex', flexShrink: 0 }}>
         {[{ key: '3d', label: '3D MODEL' }, { key: 'materials', label: 'MATERIALS' }, { key: 'report', label: 'AI REPORT' }].map(p => (

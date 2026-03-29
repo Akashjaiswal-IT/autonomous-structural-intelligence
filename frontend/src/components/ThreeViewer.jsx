@@ -1,13 +1,14 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Edges, Grid, OrbitControls, Text } from '@react-three/drei';
+import { Edges, Grid, Line, OrbitControls, Text } from '@react-three/drei';
 import * as THREE from 'three';
 
-// Single wall mesh — brown for load-bearing, cyan wireframe for partition
+// Wall mesh palette: structural walls red/orange, partitions white
 function Wall({ wall }) {
   const { position, dimensions, load_bearing, rotation_y } = wall;
-  const color = load_bearing ? '#8B4513' : '#00ffff';
-  const opacity = load_bearing ? 0.18 : 0.08;
+  const color = load_bearing ? '#ff6b2c' : '#f8f8f6';
+  const opacity = load_bearing ? 0.32 : 0.2;
+  const edgeColor = load_bearing ? '#ff944d' : '#ffffff';
 
   return (
     <group position={[position.x, position.y, position.z]} rotation={[0, rotation_y || 0, 0]}>
@@ -17,31 +18,86 @@ function Wall({ wall }) {
           color={color}
           transparent
           opacity={opacity}
-          depthWrite={false}
+          depthWrite={true}
           side={THREE.DoubleSide}
         />
-        <Edges scale={1} threshold={15} color={load_bearing ? '#cd853f' : '#00ffff'} />
+        <Edges scale={1} threshold={15} color={edgeColor} />
       </mesh>
     </group>
   );
 }
 
 // Floating room label
-function RoomLabel({ room }) {
+function RoomLabel({ label }) {
   return (
     <Text
-      position={[room.centroid_3d.x, room.centroid_3d.y + 0.3, room.centroid_3d.z]}
-      fontSize={0.22}
-      color="#00ffff"
+      position={[label.position.x, 0.035, label.position.z]}
+      rotation={[-Math.PI / 2, 0, 0]}
+      fontSize={0.28}
+      color="#0b1b26"
       anchorX="center"
       anchorY="middle"
       font={undefined}
       outlineWidth={0.01}
-      outlineColor="#000"
-      opacity={0.7}
+      outlineColor="#f7f1db"
+      opacity={0.85}
     >
-      {room.label}
+      {label.text}
     </Text>
+  );
+}
+
+function DoorSwing({ door }) {
+  const curve = new THREE.EllipseCurve(
+    door.hinge.x,
+    door.hinge.z,
+    door.radius_m,
+    door.radius_m,
+    door.start_angle_rad,
+    door.end_angle_rad,
+    false,
+    0
+  );
+
+  const arcPoints = curve
+    .getPoints(24)
+    .map((point) => [point.x, 0.04, point.y]);
+
+  const leafPoints = [
+    [door.hinge.x, 0.04, door.hinge.z],
+    [door.leaf_end.x, 0.04, door.leaf_end.z],
+  ];
+  const sweepMid = [
+    (door.hinge.x + door.leaf_end.x) / 2,
+    0.04,
+    (door.hinge.z + door.leaf_end.z) / 2,
+  ];
+
+  return (
+    <>
+      <Line points={arcPoints} color="#00ffff" lineWidth={1.4} transparent opacity={0.95} />
+      <Line points={leafPoints} color="#00ffff" lineWidth={1.4} transparent opacity={0.75} />
+      <mesh position={sweepMid}>
+        <sphereGeometry args={[0.08, 12, 12]} />
+        <meshStandardMaterial color="#00ffff" emissive="#00ffff" emissiveIntensity={0.45} />
+      </mesh>
+    </>
+  );
+}
+
+function WindowMarker({ window }) {
+  const { position, orientation, dimensions } = window;
+  const width = orientation === 'horizontal' ? dimensions.width : dimensions.depth;
+  const depth = orientation === 'horizontal' ? dimensions.depth : dimensions.width;
+
+  return (
+    <group position={[position.x, position.y, position.z]}>
+      <mesh>
+        <boxGeometry args={[Math.max(width, 0.12), dimensions.height, Math.max(depth, 0.12)]} />
+        <meshStandardMaterial color="#b6ff4d" emissive="#89ff00" emissiveIntensity={0.35} transparent opacity={0.5} />
+        <Edges scale={1} threshold={15} color="#e7ffb0" />
+      </mesh>
+    </group>
   );
 }
 
@@ -57,8 +113,15 @@ function FloorSlab({ width, depth }) {
 
 // Scene content
 function Scene({ threeJsData }) {
-  const { walls = [], rooms = [], floor_dimensions = {} } = threeJsData;
+  const { walls = [], rooms = [], labels = [], doors = [], windows = [], floor_dimensions = {} } = threeJsData;
   const { width_m = 10, depth_m = 10 } = floor_dimensions;
+  const visibleLabels = labels.length
+    ? labels
+    : rooms.map((room) => ({
+        id: room.id,
+        text: room.label,
+        position: room.centroid_3d,
+      }));
 
   return (
     <>
@@ -68,7 +131,9 @@ function Scene({ threeJsData }) {
       <pointLight position={[0, 8, 0]} intensity={0.4} color="#00ffff" />
 
       {walls.map((wall) => <Wall key={wall.id} wall={wall} />)}
-      {rooms.map((room) => <RoomLabel key={room.id} room={room} />)}
+      {windows.map((window) => <WindowMarker key={window.id} window={window} />)}
+      {visibleLabels.map((label) => <RoomLabel key={label.id} label={label} />)}
+      {doors.map((door) => <DoorSwing key={door.id} door={door} />)}
 
       <FloorSlab width={width_m} depth={depth_m} />
 
@@ -96,6 +161,8 @@ function Scene({ threeJsData }) {
 export default function ThreeViewer({ threeJsData }) {
   const loadBearingCount = threeJsData?.walls?.filter(w => w.load_bearing).length || 0;
   const partitionCount = threeJsData?.walls?.filter(w => !w.load_bearing).length || 0;
+  const windowCount = threeJsData?.windows?.length || 0;
+  const doorCount = threeJsData?.doors?.length || 0;
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -121,15 +188,27 @@ export default function ThreeViewer({ threeJsData }) {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <div style={{ width: '24px', height: '10px', background: '#cd853f', borderRadius: '1px' }} />
+            <div style={{ width: '24px', height: '10px', background: '#ff6b2c', borderRadius: '1px' }} />
             <span style={{ color: '#e0d0c0', fontSize: '0.7rem', letterSpacing: '1px' }}>
               LOAD-BEARING ({loadBearingCount})
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <div style={{ width: '24px', height: '10px', background: '#00ffff', borderRadius: '1px', opacity: 0.6 }} />
-            <span style={{ color: '#b0d4d4', fontSize: '0.7rem', letterSpacing: '1px' }}>
+            <div style={{ width: '24px', height: '10px', background: '#ffffff', borderRadius: '1px', opacity: 0.85 }} />
+            <span style={{ color: '#e5e5e5', fontSize: '0.7rem', letterSpacing: '1px' }}>
               PARTITION ({partitionCount})
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <div style={{ width: '24px', height: '10px', background: '#00ffff', borderRadius: '1px', opacity: 0.8 }} />
+            <span style={{ color: '#9ffcff', fontSize: '0.7rem', letterSpacing: '1px' }}>
+              DOORS ({doorCount})
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <div style={{ width: '24px', height: '10px', background: '#b6ff4d', borderRadius: '1px', opacity: 0.85 }} />
+            <span style={{ color: '#dfffaa', fontSize: '0.7rem', letterSpacing: '1px' }}>
+              WINDOWS ({windowCount})
             </span>
           </div>
         </div>
