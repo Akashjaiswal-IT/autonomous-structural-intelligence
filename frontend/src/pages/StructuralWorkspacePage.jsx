@@ -2,12 +2,13 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Edges, Grid } from '@react-three/drei'
 import * as THREE from 'three'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 
 import ExplainPanel from '../components/ExplainPanel.jsx'
 import FloorPlanUpload from '../components/FloorPlanUpload.jsx'
 import MaterialTable from '../components/MaterialTable.jsx'
 import ThreeViewer from '../components/ThreeViewer.jsx'
+import { fetchPipeline } from '../lib/api.js'
 import { logAnalysisOnChain } from '../stellar/integration.js'
 
 const cameraViews = [
@@ -520,9 +521,60 @@ function ResultsDashboard({ result, onReset }) {
 }
 
 export default function StructuralWorkspacePage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [phase, setPhase] = useState('landing')
   const [result, setResult] = useState(null)
   const [progressState, setProgressState] = useState(null)
+  const historyId = searchParams.get('history')
+
+  useEffect(() => {
+    if (!historyId) return
+
+    let isMounted = true
+
+    const loadHistoryResult = async () => {
+      setPhase('loading')
+      setProgressState({
+        status: 'loading',
+        stage: 'history',
+        progress: 15,
+        message: 'Loading saved conversion from history.',
+      })
+
+      try {
+        const response = await fetchPipeline(`/api/conversion-history/${encodeURIComponent(historyId)}`)
+        if (!response.ok) {
+          throw new Error('Failed to load saved conversion')
+        }
+
+        const payload = await response.json()
+        const analysis = payload?.analysis
+        if (!analysis) {
+          throw new Error('Saved conversion payload missing analysis data')
+        }
+
+        if (!isMounted) return
+        setResult(analysis)
+        setProgressState(null)
+        setPhase('results')
+        setSearchParams({}, { replace: true })
+      } catch (error) {
+        if (!isMounted) return
+        setProgressState({
+          status: 'error',
+          stage: 'history',
+          progress: 100,
+          message: error?.message || 'Could not load saved conversion',
+        })
+      }
+    }
+
+    void loadHistoryResult()
+
+    return () => {
+      isMounted = false
+    }
+  }, [historyId, setSearchParams])
 
   if (phase === 'landing') {
     return <LandingPage onEnter={() => { window.scrollTo(0, 0); setPhase('upload') }} />

@@ -155,26 +155,6 @@ export default function MaterialTable({ materialsData, walls = [] }) {
         </div>
       )}
 
-      {structural_concerns.length > 0 && (
-        <div style={{ marginBottom: '1.5rem' }}>
-          {structural_concerns.map((concern, i) => (
-            <div key={i} style={{
-              background: 'rgba(255,60,60,0.07)',
-              border: '1px solid rgba(255,60,60,0.3)',
-              borderLeft: '3px solid #ff3c3c',
-              padding: '0.6rem 1rem',
-              marginBottom: '0.4rem',
-              fontSize: '0.75rem',
-              color: '#ff9090',
-              letterSpacing: '0.5px',
-              borderRadius: '6px',
-            }}>
-              ⚠ {typeof concern === 'string' ? concern : concern.message || JSON.stringify(concern)}
-            </div>
-          ))}
-        </div>
-      )}
-
       {computedRecommendations.map((elem, idx) => (
         <div key={idx} style={{
           marginBottom: '1.1rem',
@@ -291,6 +271,34 @@ export default function MaterialTable({ materialsData, walls = [] }) {
           letterSpacing: '2px',
         }}>
           NO MATERIAL DATA AVAILABLE
+        </div>
+      )}
+
+      {structural_concerns.length > 0 && (
+        <div style={{ marginTop: computedRecommendations.length > 0 ? '1.5rem' : 0, marginBottom: '1.5rem' }}>
+          <div style={{
+            color: '#ff8f8f',
+            fontSize: '0.64rem',
+            letterSpacing: '2.2px',
+            marginBottom: '0.7rem',
+          }}>
+            STRUCTURAL WARNINGS
+          </div>
+          {structural_concerns.map((concern, i) => (
+            <div key={i} style={{
+              background: 'rgba(255,60,60,0.07)',
+              border: '1px solid rgba(255,60,60,0.3)',
+              borderLeft: '3px solid #ff3c3c',
+              padding: '0.6rem 1rem',
+              marginBottom: '0.4rem',
+              fontSize: '0.75rem',
+              color: '#ff9090',
+              letterSpacing: '0.5px',
+              borderRadius: '6px',
+            }}>
+              ⚠ {typeof concern === 'string' ? concern : concern.message || JSON.stringify(concern)}
+            </div>
+          ))}
         </div>
       )}
     </div>

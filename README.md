@@ -1,6 +1,10 @@
 # Clerk Authentication Demo
 
-This repository now includes a production-style Clerk authentication frontend in [`frontend`](/Users/akashsmac/Desktop/try/autonomous-structural-intelligence/frontend) and an optional protected Express example in [`server`](/Users/akashsmac/Desktop/try/autonomous-structural-intelligence/server).
+This repository includes:
+
+- a Vite frontend in `frontend`
+- a FastAPI backend in `backend`
+- an optional protected Express example in `server`
 
 ## Frontend
 
@@ -17,9 +21,10 @@ Features included:
 ## Setup
 
 1. Create a Clerk application and enable the email/password strategy.
-2. Copy [`frontend/.env.example`](/Users/akashsmac/Desktop/try/autonomous-structural-intelligence/frontend/.env.example) to `frontend/.env` and add your publishable key.
-3. Optional: copy [`server/.env.example`](/Users/akashsmac/Desktop/try/autonomous-structural-intelligence/server/.env.example) to `server/.env` and add your Clerk secret key.
-4. Install frontend dependencies:
+2. Copy `frontend/.env.example` to `frontend/.env` and add your Clerk publishable key.
+3. Copy `backend/.env.example` to `backend/.env` and add your `OPENAI_API_KEY`.
+4. Optional: copy `server/.env.example` to `server/.env` if you want to run the Express Clerk example.
+5. Install frontend dependencies:
 
    ```bash
    cd frontend
@@ -27,7 +32,15 @@ Features included:
    npm run dev
    ```
 
-5. Optional: run the Express API:
+6. Run the FastAPI backend:
+
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   python app.py
+   ```
+
+7. Optional: run the Express API:
 
    ```bash
    cd server
@@ -42,4 +55,36 @@ Features included:
 - `/dashboard`
 - `/profile`
 
-If the Express API is not running, the dashboard still renders and shows a graceful warning for the protected API card.
+## Environment Variables
+
+Frontend (`frontend/.env`)
+
+```env
+VITE_CLERK_PUBLISHABLE_KEY=pk_...
+VITE_API_URL=http://localhost:8787
+VITE_PIPELINE_API_URL=http://127.0.0.1:8000
+```
+
+Backend (`backend/.env`)
+
+```env
+OPENAI_API_KEY=sk-...
+LLM_PROVIDER=openai
+```
+
+Express example (`server/.env`)
+
+```env
+CLERK_PUBLISHABLE_KEY=pk_...
+CLERK_SECRET_KEY=sk_...
+FRONTEND_URL=http://localhost:5173
+PORT=8787
+```
+
+Push only the `.env.example` files to GitHub. Keep the real `.env` files local and add the same variables in your deployment platform's environment settings.
+
+## Deployment Notes
+
+- For local development, `VITE_API_URL` can point to the Express Clerk demo API and `VITE_PIPELINE_API_URL` can point to the FastAPI backend.
+- For production, set both frontend env vars explicitly in your hosting platform.
+- If your frontend and backend are served from the same origin in production, the frontend now falls back to the current site origin when these vars are not set.

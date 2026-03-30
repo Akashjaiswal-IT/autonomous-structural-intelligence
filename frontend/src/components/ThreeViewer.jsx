@@ -307,106 +307,134 @@ export default function ThreeViewer({ threeJsData }) {
   const doorCount = filteredData.data?.doors?.length || 0;
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <Canvas
-        camera={{ position: [20, 15, 20], fov: 60 }}
-        style={{ width: '100%', height: '100%' }}
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        display: 'grid',
+        gridTemplateColumns: 'minmax(0, 1fr) 300px',
+        background: 'linear-gradient(180deg, rgba(0,255,255,0.02), rgba(0,0,0,0))',
+      }}
+    >
+      <div
+        style={{
+          position: 'relative',
+          minHeight: '420px',
+          borderRight: '1px solid rgba(0,255,255,0.12)',
+        }}
       >
-        <Scene threeJsData={filteredData.data} strictness={strictness} />
-      </Canvas>
+        <Canvas
+          camera={{ position: [20, 15, 20], fov: 60 }}
+          style={{ width: '100%', height: '100%' }}
+        >
+          <Scene threeJsData={filteredData.data} strictness={strictness} />
+        </Canvas>
 
-      {/* Strictness control */}
-      <div style={{
-        position: 'absolute', top: '20px', left: '20px',
-        width: '320px',
-        background: 'rgba(3,10,20,0.86)',
-        border: '1px solid rgba(0,255,255,0.22)',
-        borderLeft: '3px solid #00ffff',
-        padding: '0.9rem 1rem',
-        backdropFilter: 'blur(10px)',
-        fontFamily: "'Courier New', monospace",
-      }}>
-        <div style={{ color: '#00ffff', fontSize: '0.62rem', letterSpacing: '2px', marginBottom: '0.5rem' }}>
-          OVERLAP STRICTNESS
-        </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: '0.55rem' }}>
-          <div style={{ color: '#d8ffff', fontSize: '0.76rem', letterSpacing: '0.8px' }}>
-            Confidence Meter: {strictnessPercent}%
-          </div>
-          <div style={{ color: 'rgba(0,255,255,0.5)', fontSize: '0.6rem', letterSpacing: '1px' }}>
-            REMOVED {filteredData.removed}/{filteredData.total}
-          </div>
-        </div>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          step={1}
-          value={strictnessPercent}
-          onChange={(event) => setStrictnessPercent(Number(event.target.value))}
-          style={{ width: '100%', accentColor: '#00ffff', cursor: 'pointer' }}
-        />
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.38rem', color: 'rgba(0,255,255,0.45)', fontSize: '0.56rem', letterSpacing: '1px' }}>
-          <span>LENIENT</span>
-          <span>AGGRESSIVE</span>
-        </div>
-        <div style={{ color: 'rgba(0,255,255,0.45)', fontSize: '0.56rem', letterSpacing: '1px', marginTop: '0.42rem' }}>
-          OVERLAP: {filteredData.removedOverlap} · LOW-CONF: {filteredData.removedConfidence}
+        <div style={{
+          position: 'absolute',
+          left: '16px',
+          bottom: '16px',
+          color: 'rgba(170,235,255,0.72)',
+          fontSize: '0.56rem',
+          fontFamily: "'Courier New', monospace",
+          letterSpacing: '1.15px',
+          lineHeight: 1.65,
+          padding: '0.52rem 0.7rem',
+          background: 'rgba(3,10,20,0.72)',
+          border: '1px solid rgba(0,255,255,0.14)',
+          borderRadius: '8px',
+          backdropFilter: 'blur(8px)',
+        }}>
+          DRAG TO ROTATE<br />
+          SCROLL TO ZOOM<br />
+          RIGHT-DRAG TO PAN
         </div>
       </div>
 
-      {/* Legend overlay */}
-      <div style={{
-        position: 'absolute', bottom: '20px', left: '20px',
-        background: 'rgba(3,10,20,0.85)',
-        border: '1px solid rgba(0,255,255,0.2)',
-        borderLeft: '3px solid #00ffff',
-        padding: '1rem 1.2rem',
-        backdropFilter: 'blur(10px)',
-        fontFamily: "'Courier New', monospace",
-      }}>
-        <div style={{ color: '#00ffff', fontSize: '0.65rem', letterSpacing: '3px', marginBottom: '0.75rem' }}>
-          WALL LEGEND
+      <aside
+        style={{
+          padding: '1rem',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.9rem',
+          background: 'rgba(3,10,20,0.78)',
+          fontFamily: "'Courier New', monospace",
+        }}
+      >
+        <div style={{
+          border: '1px solid rgba(0,255,255,0.18)',
+          borderLeft: '3px solid #00ffff',
+          borderRadius: '6px',
+          padding: '0.8rem 0.9rem',
+          background: 'rgba(0,255,255,0.03)',
+        }}>
+          <div style={{ color: '#00ffff', fontSize: '0.6rem', letterSpacing: '2.1px', marginBottom: '0.45rem' }}>
+            WALL LEGEND
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.42rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <div style={{ width: '24px', height: '10px', background: '#ff6b2c', borderRadius: '1px' }} />
+              <span style={{ color: '#e0d0c0', fontSize: '0.62rem', letterSpacing: '1px' }}>
+                LOAD-BEARING ({loadBearingCount})
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <div style={{ width: '24px', height: '10px', background: '#ffffff', borderRadius: '1px', opacity: 0.85 }} />
+              <span style={{ color: '#e5e5e5', fontSize: '0.62rem', letterSpacing: '1px' }}>
+                PARTITION ({partitionCount})
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <div style={{ width: '24px', height: '10px', background: '#00ffff', borderRadius: '1px', opacity: 0.8 }} />
+              <span style={{ color: '#9ffcff', fontSize: '0.62rem', letterSpacing: '1px' }}>
+                DOORS ({doorCount})
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <div style={{ width: '24px', height: '10px', background: '#b6ff4d', borderRadius: '1px', opacity: 0.85 }} />
+              <span style={{ color: '#dfffaa', fontSize: '0.62rem', letterSpacing: '1px' }}>
+                WINDOWS ({windowCount})
+              </span>
+            </div>
+          </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <div style={{ width: '24px', height: '10px', background: '#ff6b2c', borderRadius: '1px' }} />
-            <span style={{ color: '#e0d0c0', fontSize: '0.7rem', letterSpacing: '1px' }}>
-              LOAD-BEARING ({loadBearingCount})
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <div style={{ width: '24px', height: '10px', background: '#ffffff', borderRadius: '1px', opacity: 0.85 }} />
-            <span style={{ color: '#e5e5e5', fontSize: '0.7rem', letterSpacing: '1px' }}>
-              PARTITION ({partitionCount})
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <div style={{ width: '24px', height: '10px', background: '#00ffff', borderRadius: '1px', opacity: 0.8 }} />
-            <span style={{ color: '#9ffcff', fontSize: '0.7rem', letterSpacing: '1px' }}>
-              DOORS ({doorCount})
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <div style={{ width: '24px', height: '10px', background: '#b6ff4d', borderRadius: '1px', opacity: 0.85 }} />
-            <span style={{ color: '#dfffaa', fontSize: '0.7rem', letterSpacing: '1px' }}>
-              WINDOWS ({windowCount})
-            </span>
-          </div>
-        </div>
-      </div>
 
-      {/* Controls hint */}
-      <div style={{
-        position: 'absolute', bottom: '20px', right: '20px',
-        color: 'rgba(0,255,255,0.35)', fontSize: '0.65rem',
-        fontFamily: "'Courier New', monospace", letterSpacing: '1.5px',
-        textAlign: 'right', lineHeight: 1.8,
-      }}>
-        DRAG TO ROTATE<br />
-        SCROLL TO ZOOM<br />
-        RIGHT-DRAG TO PAN
-      </div>
+        <div style={{
+          border: '1px solid rgba(0,255,255,0.18)',
+          borderLeft: '3px solid #00ffff',
+          borderRadius: '6px',
+          padding: '0.8rem 0.9rem',
+          background: 'rgba(0,255,255,0.03)',
+        }}>
+          <div style={{ color: '#00ffff', fontSize: '0.62rem', letterSpacing: '2px', marginBottom: '0.5rem' }}>
+            OVERLAP STRICTNESS
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '0.55rem' }}>
+            <div style={{ color: '#d8ffff', fontSize: '0.76rem', letterSpacing: '0.8px' }}>
+              Confidence Meter: {strictnessPercent}%
+            </div>
+            <div style={{ color: 'rgba(0,255,255,0.5)', fontSize: '0.6rem', letterSpacing: '1px' }}>
+              REMOVED {filteredData.removed}/{filteredData.total}
+            </div>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={strictnessPercent}
+            onChange={(event) => setStrictnessPercent(Number(event.target.value))}
+            style={{ width: '100%', accentColor: '#00ffff', cursor: 'pointer' }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.45rem', color: 'rgba(0,255,255,0.45)', fontSize: '0.56rem', letterSpacing: '1px' }}>
+            <span>LENIENT</span>
+            <span>AGGRESSIVE</span>
+          </div>
+          <div style={{ color: 'rgba(0,255,255,0.45)', fontSize: '0.56rem', letterSpacing: '1px', marginTop: '0.5rem' }}>
+            OVERLAP: {filteredData.removedOverlap} · LOW-CONF: {filteredData.removedConfidence}
+          </div>
+        </div>
+      </aside>
     </div>
   );
 }

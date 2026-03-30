@@ -10,4 +10,12 @@
 
 # Dependencies and runtime artifacts
 **/node_modules/
+**/venv/
+**/.venv/
+dist/
+build/
 backend/data/uploads/
+backend/data/draw_history/*.json
+!backend/data/draw_history/index.json
+backend/data/conversion_history/*.json
+!backend/data/conversion_history/index.json

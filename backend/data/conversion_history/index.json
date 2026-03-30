@@ -1,5 +1,253 @@
 [
   {
+    "id": "upload_20260330T061541Z_whatsapp-image-2026-03-30-at-07-42-07_87ee962ea8",
+    "type": "upload",
+    "created_at": "2026-03-30T06:15:41.550016Z",
+    "title": "Upload \u00b7 WhatsApp Image 2026-03-30 at 07.42.07.jpeg",
+    "stats": {
+      "walls": 14,
+      "doors": 0,
+      "windows": 1,
+      "rooms": 5
+    },
+    "analysis_id": "20260330T061541Z_whatsapp-image-2026-03-30-at-07-42-07_87ee962ea8",
+    "analysis_path": "/Users/akashsmac/Desktop/final/autonomous-structural-intelligence/backend/data/uploads/20260330T061541Z_whatsapp-image-2026-03-30-at-07-42-07_87ee962ea8/analysis.json"
+  },
+  {
+    "id": "upload_20260330T061407Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d",
+    "type": "upload",
+    "created_at": "2026-03-30T06:14:07.384441Z",
+    "title": "Upload \u00b7 Screenshot 2026-03-30 at 3.31.55\u202fAM.png",
+    "stats": {
+      "walls": 40,
+      "doors": 3,
+      "windows": 10,
+      "rooms": 8
+    },
+    "analysis_id": "20260330T061407Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d",
+    "analysis_path": "/Users/akashsmac/Desktop/final/autonomous-structural-intelligence/backend/data/uploads/20260330T061407Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d/analysis.json"
+  },
+  {
+    "id": "draw_20260330T061347Z_a46fe790b9",
+    "type": "draw",
+    "draw_entry_id": "20260330T061347Z_a46fe790b9",
+    "created_at": "2026-03-30T06:13:47.824788Z",
+    "title": "2D\u21923D \u00b7 4 walls \u00b7 1 rooms",
+    "stats": {
+      "walls": 4,
+      "doors": 1,
+      "windows": 1,
+      "rooms": 1
+    }
+  },
+  {
+    "id": "draw_20260330T061335Z_779994273b",
+    "type": "draw",
+    "draw_entry_id": "20260330T061335Z_779994273b",
+    "created_at": "2026-03-30T06:13:35.430093Z",
+    "title": "2D\u21923D \u00b7 4 walls \u00b7 1 rooms",
+    "stats": {
+      "walls": 4,
+      "doors": 0,
+      "windows": 0,
+      "rooms": 1
+    }
+  },
+  {
+    "id": "upload_20260330T061159Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d",
+    "type": "upload",
+    "created_at": "2026-03-30T06:11:59.841214Z",
+    "title": "Upload \u00b7 Screenshot 2026-03-30 at 3.31.55\u202fAM.png",
+    "stats": {
+      "walls": 40,
+      "doors": 3,
+      "windows": 10,
+      "rooms": 8
+    },
+    "analysis_id": "20260330T061159Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d",
+    "analysis_path": "/Users/akashsmac/Desktop/final/autonomous-structural-intelligence/backend/data/uploads/20260330T061159Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d/analysis.json"
+  },
+  {
+    "id": "upload_20260330T060102Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d",
+    "type": "upload",
+    "created_at": "2026-03-30T06:01:02.553522Z",
+    "title": "Upload \u00b7 Screenshot 2026-03-30 at 3.31.55\u202fAM.png",
+    "stats": {
+      "walls": 40,
+      "doors": 3,
+      "windows": 10,
+      "rooms": 8
+    },
+    "analysis_id": "20260330T060102Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d",
+    "analysis_path": "/Users/akashsmac/Desktop/final/autonomous-structural-intelligence/backend/data/uploads/20260330T060102Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d/analysis.json"
+  },
+  {
+    "id": "upload_20260330T054539Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d",
+    "type": "upload",
+    "created_at": "2026-03-30T05:45:39.157957Z",
+    "title": "Upload \u00b7 Screenshot 2026-03-30 at 3.31.55\u202fAM.png",
+    "stats": {
+      "walls": 40,
+      "doors": 3,
+      "windows": 10,
+      "rooms": 8
+    },
+    "analysis_id": "20260330T054539Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d",
+    "analysis_path": "/Users/akashsmac/Desktop/final/autonomous-structural-intelligence/backend/data/uploads/20260330T054539Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d/analysis.json"
+  },
+  {
+    "id": "upload_20260330T054525Z_test-2_4b8fd24310",
+    "type": "upload",
+    "created_at": "2026-03-30T05:45:25.642681Z",
+    "title": "Upload \u00b7 test 2.jpeg",
+    "stats": {
+      "walls": 24,
+      "doors": 0,
+      "windows": 0,
+      "rooms": 7
+    },
+    "analysis_id": "20260330T054525Z_test-2_4b8fd24310",
+    "analysis_path": "/Users/akashsmac/Desktop/final/autonomous-structural-intelligence/backend/data/uploads/20260330T054525Z_test-2_4b8fd24310/analysis.json"
+  },
+  {
+    "id": "upload_20260330T054501Z_test1_92bde0f5a0",
+    "type": "upload",
+    "created_at": "2026-03-30T05:45:01.621575Z",
+    "title": "Upload \u00b7 test1.jpeg",
+    "stats": {
+      "walls": 26,
+      "doors": 2,
+      "windows": 1,
+      "rooms": 5
+    },
+    "analysis_id": "20260330T054501Z_test1_92bde0f5a0",
+    "analysis_path": "/Users/akashsmac/Desktop/final/autonomous-structural-intelligence/backend/data/uploads/20260330T054501Z_test1_92bde0f5a0/analysis.json"
+  },
+  {
+    "id": "upload_20260330T054428Z_screenshot-2026-03-30-at-3-41-17-am_a5228f0f72",
+    "type": "upload",
+    "created_at": "2026-03-30T05:44:28.102581Z",
+    "title": "Upload \u00b7 Screenshot 2026-03-30 at 3.41.17\u202fAM.png",
+    "stats": {
+      "walls": 47,
+      "doors": 2,
+      "windows": 7,
+      "rooms": 8
+    },
+    "analysis_id": "20260330T054428Z_screenshot-2026-03-30-at-3-41-17-am_a5228f0f72",
+    "analysis_path": "/Users/akashsmac/Desktop/final/autonomous-structural-intelligence/backend/data/uploads/20260330T054428Z_screenshot-2026-03-30-at-3-41-17-am_a5228f0f72/analysis.json"
+  },
+  {
+    "id": "upload_20260330T054405Z_test-3_0f4c97c7d3",
+    "type": "upload",
+    "created_at": "2026-03-30T05:44:05.493374Z",
+    "title": "Upload \u00b7 test 3.jpeg",
+    "stats": {
+      "walls": 35,
+      "doors": 0,
+      "windows": 10,
+      "rooms": 6
+    },
+    "analysis_id": "20260330T054405Z_test-3_0f4c97c7d3",
+    "analysis_path": "/Users/akashsmac/Desktop/final/autonomous-structural-intelligence/backend/data/uploads/20260330T054405Z_test-3_0f4c97c7d3/analysis.json"
+  },
+  {
+    "id": "upload_20260330T054046Z_whatsapp-image-2026-03-30-at-11-10-38_82b29876cf",
+    "type": "upload",
+    "created_at": "2026-03-30T05:40:46.794918Z",
+    "title": "Upload \u00b7 WhatsApp Image 2026-03-30 at 11.10.38.jpeg",
+    "stats": {
+      "walls": 16,
+      "doors": 0,
+      "windows": 0,
+      "rooms": 4
+    },
+    "analysis_id": "20260330T054046Z_whatsapp-image-2026-03-30-at-11-10-38_82b29876cf",
+    "analysis_path": "/Users/akashsmac/Desktop/final/autonomous-structural-intelligence/backend/data/uploads/20260330T054046Z_whatsapp-image-2026-03-30-at-11-10-38_82b29876cf/analysis.json"
+  },
+  {
+    "id": "upload_20260330T053956Z_whatsapp-image-2026-03-30-at-07-42-07_87ee962ea8",
+    "type": "upload",
+    "created_at": "2026-03-30T05:39:56.534995Z",
+    "title": "Upload \u00b7 WhatsApp Image 2026-03-30 at 07.42.07.jpeg",
+    "stats": {
+      "walls": 14,
+      "doors": 0,
+      "windows": 1,
+      "rooms": 5
+    },
+    "analysis_id": "20260330T053956Z_whatsapp-image-2026-03-30-at-07-42-07_87ee962ea8",
+    "analysis_path": "/Users/akashsmac/Desktop/final/autonomous-structural-intelligence/backend/data/uploads/20260330T053956Z_whatsapp-image-2026-03-30-at-07-42-07_87ee962ea8/analysis.json"
+  },
+  {
+    "id": "upload_20260330T053937Z_whatsapp-image-2026-03-30-at-11-09-15_9a97adb8d4",
+    "type": "upload",
+    "created_at": "2026-03-30T05:39:37.884363Z",
+    "title": "Upload \u00b7 WhatsApp Image 2026-03-30 at 11.09.15.jpeg",
+    "stats": {
+      "walls": 15,
+      "doors": 0,
+      "windows": 0,
+      "rooms": 4
+    },
+    "analysis_id": "20260330T053937Z_whatsapp-image-2026-03-30-at-11-09-15_9a97adb8d4",
+    "analysis_path": "/Users/akashsmac/Desktop/final/autonomous-structural-intelligence/backend/data/uploads/20260330T053937Z_whatsapp-image-2026-03-30-at-11-09-15_9a97adb8d4/analysis.json"
+  },
+  {
+    "id": "draw_20260330T053603Z_e72ef269c6",
+    "type": "draw",
+    "draw_entry_id": "20260330T053603Z_e72ef269c6",
+    "created_at": "2026-03-30T05:36:03.356098Z",
+    "title": "2D\u21923D \u00b7 8 walls \u00b7 1 rooms",
+    "stats": {
+      "walls": 8,
+      "doors": 2,
+      "windows": 2,
+      "rooms": 1
+    }
+  },
+  {
+    "id": "upload_20260330T053312Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d",
+    "type": "upload",
+    "created_at": "2026-03-30T05:33:12.937912Z",
+    "title": "Upload \u00b7 Screenshot 2026-03-30 at 3.31.55\u202fAM.png",
+    "stats": {
+      "walls": 40,
+      "doors": 3,
+      "windows": 10,
+      "rooms": 8
+    },
+    "analysis_id": "20260330T053312Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d",
+    "analysis_path": "/Users/akashsmac/Desktop/final/autonomous-structural-intelligence/backend/data/uploads/20260330T053312Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d/analysis.json"
+  },
+  {
+    "id": "draw_20260330T052340Z_23354c7f2a",
+    "type": "draw",
+    "draw_entry_id": "20260330T052340Z_23354c7f2a",
+    "created_at": "2026-03-30T05:23:40.524253Z",
+    "title": "2D\u21923D \u00b7 9 walls \u00b7 1 rooms",
+    "stats": {
+      "walls": 9,
+      "doors": 0,
+      "windows": 0,
+      "rooms": 1
+    }
+  },
+  {
+    "id": "upload_20260330T052116Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d",
+    "type": "upload",
+    "created_at": "2026-03-30T05:21:16.438761Z",
+    "title": "Upload \u00b7 Screenshot 2026-03-30 at 3.31.55\u202fAM.png",
+    "stats": {
+      "walls": 40,
+      "doors": 3,
+      "windows": 10,
+      "rooms": 8
+    },
+    "analysis_id": "20260330T052116Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d",
+    "analysis_path": "/Users/akashsmac/Desktop/final/autonomous-structural-intelligence/backend/data/uploads/20260330T052116Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d/analysis.json"
+  },
+  {
     "id": "draw_20260330T035011Z_1e6ed30d22",
     "type": "draw",
     "draw_entry_id": "20260330T035011Z_1e6ed30d22",

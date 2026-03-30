@@ -1,13 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
+import { fetchPipeline } from '../lib/api.js';
 import ThreeViewer from './ThreeViewer.jsx';
 
 const DRAW_WIDTH_M = 12;
 const DRAW_DEPTH_M = 8;
 const SNAP_TOLERANCE_M = 0.2;
 const HIT_TOLERANCE_M = 0.24;
-const BACKEND_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
-
 function roundToCm(value) {
   return Math.round(value * 100) / 100;
 }
@@ -342,7 +341,7 @@ export default function Draw2DTo3DStudio() {
     const title = `2D→3D · ${walls} walls · ${rooms} rooms`;
     setHistorySaving(true);
     try {
-      const response = await fetch(`${BACKEND_BASE_URL}/api/draw-history`, {
+      const response = await fetchPipeline('/api/draw-history', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -384,7 +383,7 @@ export default function Draw2DTo3DStudio() {
   const loadHistoryList = async () => {
     setHistoryLoading(true);
     try {
-      const response = await fetch(`${BACKEND_BASE_URL}/api/draw-history?limit=25`);
+      const response = await fetchPipeline('/api/draw-history?limit=25');
       if (!response.ok) {
         throw new Error('Failed to load history');
       }
@@ -405,7 +404,7 @@ export default function Draw2DTo3DStudio() {
   const handleLoadHistory = async (entryId) => {
     setActiveHistoryId(entryId);
     try {
-      const response = await fetch(`${BACKEND_BASE_URL}/api/draw-history/${entryId}`);
+      const response = await fetchPipeline(`/api/draw-history/${entryId}`);
       if (!response.ok) {
         throw new Error('Failed to load selected history');
       }
@@ -431,7 +430,7 @@ export default function Draw2DTo3DStudio() {
     const nextTitle = window.prompt('Rename conversion', item.title || 'Saved Conversion');
     if (!nextTitle || !nextTitle.trim()) return;
     try {
-      const response = await fetch(`${BACKEND_BASE_URL}/api/draw-history/${item.id}`, {
+      const response = await fetchPipeline(`/api/draw-history/${item.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: nextTitle.trim() }),
@@ -455,7 +454,7 @@ export default function Draw2DTo3DStudio() {
     const confirmed = window.confirm(`Delete "${item.title || 'Saved Conversion'}"?`);
     if (!confirmed) return;
     try {
-      const response = await fetch(`${BACKEND_BASE_URL}/api/draw-history/${item.id}`, {
+      const response = await fetchPipeline(`/api/draw-history/${item.id}`, {
         method: 'DELETE',
       });
       if (!response.ok) {
@@ -479,13 +478,13 @@ export default function Draw2DTo3DStudio() {
   ];
 
   return (
-    <div style={{ width: 'min(1260px, 94vw)', margin: '0 auto' }}>
+    <div style={{ width: 'min(1340px, 94vw)', margin: '0 auto' }}>
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
-          gap: '1rem',
-          alignItems: 'stretch',
+          gridTemplateColumns: 'minmax(520px, 1.08fr) minmax(420px, 0.92fr)',
+          gap: '1.2rem',
+          alignItems: 'start',
         }}
       >
         <section
@@ -747,10 +746,11 @@ export default function Draw2DTo3DStudio() {
             border: '1px solid rgba(0,255,255,0.18)',
             background: 'rgba(3,10,20,0.62)',
             borderRadius: '6px',
-            minHeight: '520px',
+            minHeight: '620px',
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
+            boxShadow: '0 18px 40px rgba(0,0,0,0.22)',
           }}
         >
           <div style={{ borderBottom: '1px solid rgba(0,255,255,0.14)', padding: '1rem 1rem 0.75rem' }}>
@@ -789,58 +789,85 @@ export default function Draw2DTo3DStudio() {
             )}
           </div>
 
-          <div style={{ borderTop: '1px solid rgba(0,255,255,0.14)', padding: '0.7rem 0.9rem', maxHeight: '220px', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.45rem' }}>
-              <div style={{ color: '#00ffff', fontSize: '0.62rem', letterSpacing: '1.8px' }}>CONVERSION HISTORY</div>
-              <button
-                type="button"
-                onClick={() => { void loadHistoryList(); }}
-                style={{
-                  background: 'none',
-                  border: '1px solid rgba(0,255,255,0.24)',
-                  color: 'rgba(150,230,255,0.85)',
-                  fontSize: '0.52rem',
-                  letterSpacing: '1.3px',
-                  padding: '0.22rem 0.45rem',
-                  fontFamily: "'Courier New', monospace",
-                  cursor: 'pointer',
-                }}
-              >
-                REFRESH
-              </button>
+        </section>
+      </div>
+
+      <section
+        style={{
+          marginTop: '1.2rem',
+          border: '1px solid rgba(0,255,255,0.18)',
+          background: 'rgba(3,10,20,0.62)',
+          borderRadius: '6px',
+          padding: '0.9rem 1rem 1rem',
+          boxShadow: '0 18px 40px rgba(0,0,0,0.18)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginBottom: '0.7rem', flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ color: '#00ffff', fontSize: '0.62rem', letterSpacing: '1.8px' }}>CONVERSION HISTORY</div>
+            <div style={{ color: 'rgba(150,230,255,0.58)', fontSize: '0.54rem', letterSpacing: '1.1px', marginTop: '0.25rem' }}>
+              Reopen, rename, or remove saved 2D to 3D conversions.
             </div>
-            {historySaving ? (
-              <div style={{ color: 'rgba(0,255,255,0.45)', fontSize: '0.55rem', letterSpacing: '1.2px', marginBottom: '0.4rem' }}>
-                SAVING CURRENT CONVERSION...
-              </div>
-            ) : null}
-            {historyLoading ? (
-              <div style={{ color: 'rgba(0,255,255,0.45)', fontSize: '0.55rem', letterSpacing: '1.2px' }}>
-                LOADING HISTORY...
-              </div>
-            ) : null}
-            {historyError ? (
-              <div style={{ color: 'rgba(255,160,160,0.85)', fontSize: '0.55rem', letterSpacing: '1.1px', marginBottom: '0.45rem' }}>
-                {historyError}
-              </div>
-            ) : null}
-            {!historyLoading && historyItems.length === 0 ? (
-              <div style={{ color: 'rgba(0,255,255,0.35)', fontSize: '0.55rem', letterSpacing: '1.1px' }}>
-                NO SAVED CONVERSIONS YET.
-              </div>
-            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={() => { void loadHistoryList(); }}
+            style={{
+              background: 'none',
+              border: '1px solid rgba(0,255,255,0.24)',
+              color: 'rgba(150,230,255,0.85)',
+              fontSize: '0.52rem',
+              letterSpacing: '1.3px',
+              padding: '0.32rem 0.55rem',
+              fontFamily: "'Courier New', monospace",
+              cursor: 'pointer',
+            }}
+          >
+            REFRESH
+          </button>
+        </div>
+        {historySaving ? (
+          <div style={{ color: 'rgba(0,255,255,0.45)', fontSize: '0.55rem', letterSpacing: '1.2px', marginBottom: '0.4rem' }}>
+            SAVING CURRENT CONVERSION...
+          </div>
+        ) : null}
+        {historyLoading ? (
+          <div style={{ color: 'rgba(0,255,255,0.45)', fontSize: '0.55rem', letterSpacing: '1.2px' }}>
+            LOADING HISTORY...
+          </div>
+        ) : null}
+        {historyError ? (
+          <div style={{ color: 'rgba(255,160,160,0.85)', fontSize: '0.55rem', letterSpacing: '1.1px', marginBottom: '0.45rem' }}>
+            {historyError}
+          </div>
+        ) : null}
+        {!historyLoading && historyItems.length === 0 ? (
+          <div style={{ color: 'rgba(0,255,255,0.35)', fontSize: '0.55rem', letterSpacing: '1.1px' }}>
+            NO SAVED CONVERSIONS YET.
+          </div>
+        ) : null}
+        {!historyLoading && historyItems.length > 0 ? (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+              gap: '0.7rem',
+              maxHeight: '280px',
+              overflowY: 'auto',
+              paddingRight: '0.2rem',
+            }}
+          >
             {historyItems.map((item) => (
               <div
                 key={item.id}
                 style={{
-                  width: '100%',
                   textAlign: 'left',
-                  background: activeHistoryId === item.id ? 'rgba(0,255,255,0.14)' : 'rgba(0,255,255,0.04)',
+                  background: activeHistoryId === item.id ? 'rgba(0,255,255,0.12)' : 'rgba(0,255,255,0.04)',
                   border: '1px solid rgba(0,255,255,0.18)',
                   color: 'rgba(180,240,255,0.9)',
-                  padding: '0.42rem 0.5rem',
-                  marginBottom: '0.35rem',
+                  padding: '0.65rem 0.7rem',
                   fontFamily: "'Courier New', monospace",
+                  minHeight: '86px',
                 }}
               >
                 <button
@@ -856,13 +883,15 @@ export default function Draw2DTo3DStudio() {
                     padding: 0,
                   }}
                 >
-                  <div style={{ fontSize: '0.56rem', letterSpacing: '1px' }}>{item.title || 'Saved Conversion'}</div>
-                  <div style={{ color: 'rgba(120,220,255,0.62)', fontSize: '0.5rem', letterSpacing: '1px', marginTop: '0.18rem' }}>
-                    {(item.created_at || '').replace('T', ' ').replace('Z', '')} ·
-                    {' '}W:{item?.stats?.walls ?? 0} · D:{item?.stats?.doors ?? 0} · Win:{item?.stats?.windows ?? 0}
+                  <div style={{ fontSize: '0.58rem', letterSpacing: '1px' }}>{item.title || 'Saved Conversion'}</div>
+                  <div style={{ color: 'rgba(120,220,255,0.62)', fontSize: '0.5rem', letterSpacing: '1px', marginTop: '0.22rem' }}>
+                    {(item.created_at || '').replace('T', ' ').replace('Z', '')}
+                  </div>
+                  <div style={{ color: 'rgba(120,220,255,0.72)', fontSize: '0.5rem', letterSpacing: '1px', marginTop: '0.26rem' }}>
+                    W:{item?.stats?.walls ?? 0} · D:{item?.stats?.doors ?? 0} · Win:{item?.stats?.windows ?? 0}
                   </div>
                 </button>
-                <div style={{ display: 'flex', gap: '0.35rem', marginTop: '0.38rem' }}>
+                <div style={{ display: 'flex', gap: '0.35rem', marginTop: '0.55rem' }}>
                   <button
                     type="button"
                     onClick={() => { void handleRenameHistory(item); }}
@@ -899,8 +928,8 @@ export default function Draw2DTo3DStudio() {
               </div>
             ))}
           </div>
-        </section>
-      </div>
+        ) : null}
+      </section>
     </div>
   );
 }

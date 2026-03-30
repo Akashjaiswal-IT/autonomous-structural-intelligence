@@ -2,9 +2,8 @@ import { UserProfile, useUser } from '@clerk/clerk-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import { fetchPipeline } from '../lib/api.js'
 import { clerkAppearance } from '../lib/clerkAppearance.js'
-
-const BACKEND_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'
 
 function formatDate(value) {
   if (!value) return 'Unknown time'
@@ -24,7 +23,7 @@ export default function ProfilePage() {
     const loadHistory = async () => {
       setHistoryLoading(true)
       try {
-        const response = await fetch(`${BACKEND_BASE_URL}/api/conversion-history?limit=50`)
+        const response = await fetchPipeline('/api/conversion-history?limit=50')
         if (!response.ok) {
           throw new Error('Failed to load conversion history')
         }
@@ -142,8 +141,9 @@ export default function ProfilePage() {
           {!historyLoading && !historyError && historyItems.length > 0 ? (
             <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
               {historyItems.map((item) => (
-                <div
+                <Link
                   key={item.id}
+                  to={`/dashboard?history=${encodeURIComponent(item.id)}`}
                   className="rounded-xl border border-cyan-200/10 bg-cyan-500/[0.03] p-3"
                 >
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -162,7 +162,7 @@ export default function ProfilePage() {
                   <div className="mt-2 text-xs text-slate-300">
                     W:{item?.stats?.walls ?? 0} · D:{item?.stats?.doors ?? 0} · Win:{item?.stats?.windows ?? 0} · Rooms:{item?.stats?.rooms ?? 0}
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           ) : null}

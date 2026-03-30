@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { buildPipelineWsUrl, fetchPipeline, getPipelineBaseUrl, pipelineFallbackBaseUrl } from '../lib/api.js';
 import Draw2DTo3DStudio from './Draw2DTo3DStudio.jsx';
 
 export default function FloorPlanUpload({ onAnalysisComplete, onLoading }) {
@@ -17,8 +18,8 @@ export default function FloorPlanUpload({ onAnalysisComplete, onLoading }) {
 
   const runPipeline = async (file) => {
     const jobId = crypto.randomUUID();
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//localhost:8000/ws/pipeline/${jobId}`;
+    const pipelineBaseUrl = await getPipelineBaseUrl();
+    const wsUrl = await buildPipelineWsUrl(`/ws/pipeline/${jobId}`);
 
     onLoading(true, {
       jobId,
@@ -43,7 +44,7 @@ export default function FloorPlanUpload({ onAnalysisComplete, onLoading }) {
       const form = new FormData();
       form.append('file', file);
       form.append('job_id', jobId);
-      const res = await fetch('http://localhost:8000/api/pipeline', {
+      const res = await fetchPipeline('/api/pipeline', {
         method: 'POST',
         body: form,
       });
@@ -60,9 +61,9 @@ export default function FloorPlanUpload({ onAnalysisComplete, onLoading }) {
         status: 'error',
         stage: 'failed',
         progress: 100,
-        message: err.message || 'Backend error — make sure FastAPI is running on port 8000',
+        message: err.message || `Backend error — make sure FastAPI is running on ${pipelineBaseUrl || pipelineFallbackBaseUrl}`,
       });
-      alert(err.message || 'Backend error — make sure FastAPI is running on port 8000');
+      alert(err.message || `Backend error — make sure FastAPI is running on ${pipelineBaseUrl || pipelineFallbackBaseUrl}`);
     } finally {
       if (socket) {
         socket.close();
