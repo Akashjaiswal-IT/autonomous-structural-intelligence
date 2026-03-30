@@ -1,0 +1,134 @@
+{
+  "id": "20260330T034931Z_10e7090591",
+  "title": "2D\u21923D \u00b7 5 walls \u00b7 0 rooms",
+  "created_at": "2026-03-30T03:49:31.830160Z",
+  "stats": {
+    "walls": 5,
+    "doors": 0,
+    "windows": 0,
+    "rooms": 0
+  },
+  "three_js": {
+    "walls": [
+      {
+        "id": "draw-wall-1",
+        "load_bearing": false,
+        "orientation": "vertical",
+        "position": {
+          "x": -3.03,
+          "y": 1.5,
+          "z": -0.23
+        },
+        "dimensions": {
+          "width": 3.47,
+          "height": 3,
+          "depth": 0.14
+        },
+        "rotation_y": 1.677634343113719
+      },
+      {
+        "id": "draw-wall-2",
+        "load_bearing": false,
+        "orientation": "horizontal",
+        "position": {
+          "x": -1.32,
+          "y": 1.5,
+          "z": -0.13
+        },
+        "dimensions": {
+          "width": 5,
+          "height": 3,
+          "depth": 0.14
+        },
+        "rotation_y": -0.7075416738544792
+      },
+      {
+        "id": "draw-wall-3",
+        "load_bearing": false,
+        "orientation": "vertical",
+        "position": {
+          "x": 0.13,
+          "y": 1.5,
+          "z": 0.1
+        },
+        "dimensions": {
+          "width": 3.82,
+          "height": 3,
+          "depth": 0.14
+        },
+        "rotation_y": 1.808786539524594
+      },
+      {
+        "id": "draw-wall-4",
+        "load_bearing": false,
+        "orientation": "vertical",
+        "position": {
+          "x": 1.45,
+          "y": 1.5,
+          "z": 0.18
+        },
+        "dimensions": {
+          "width": 5.01,
+          "height": 3,
+          "depth": 0.14
+        },
+        "rotation_y": -0.788223014640585
+      },
+      {
+        "id": "draw-wall-5",
+        "load_bearing": false,
+        "orientation": "vertical",
+        "position": {
+          "x": 3.12,
+          "y": 1.5,
+          "z": -0.07
+        },
+        "dimensions": {
+          "width": 3.06,
+          "height": 3,
+          "depth": 0.14
+        },
+        "rotation_y": 1.6362763517183614
+      }
+    ],
+    "rooms": [],
+    "labels": [],
+    "doors": [],
+    "windows": [],
+    "floor_dimensions": {
+      "width_m": 8.43,
+      "depth_m": 6
+    }
+  },
+  "editor": {
+    "points": [
+      {
+        "x": 3.1,
+        "z": 1.81
+      },
+      {
+        "x": 2.73,
+        "z": 5.26
+      },
+      {
+        "x": 6.53,
+        "z": 2.01
+      },
+      {
+        "x": 5.63,
+        "z": 5.72
+      },
+      {
+        "x": 9.16,
+        "z": 2.17
+      },
+      {
+        "x": 8.96,
+        "z": 5.22
+      }
+    ],
+    "isClosed": false,
+    "deletedSegments": [],
+    "openings": []
+  }
+}

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import ThreeViewer from './ThreeViewer.jsx';
 
@@ -6,6 +6,7 @@ const DRAW_WIDTH_M = 12;
 const DRAW_DEPTH_M = 8;
 const SNAP_TOLERANCE_M = 0.2;
 const HIT_TOLERANCE_M = 0.24;
+const BACKEND_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 
 function roundToCm(value) {
   return Math.round(value * 100) / 100;
@@ -202,6 +203,11 @@ export default function Draw2DTo3DStudio() {
   const [hoverPoint, setHoverPoint] = useState(null);
   const [deletedSegments, setDeletedSegments] = useState([]);
   const [openings, setOpenings] = useState([]);
+  const [historyItems, setHistoryItems] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const [historySaving, setHistorySaving] = useState(false);
+  const [activeHistoryId, setActiveHistoryId] = useState(null);
 
   const deletedSegmentSet = useMemo(() => new Set(deletedSegments), [deletedSegments]);
   const segments = useMemo(
@@ -325,6 +331,144 @@ export default function Draw2DTo3DStudio() {
     const converted = buildThreeJsData(points, isClosed, deletedSegmentSet, openings);
     setThreeData(converted);
     setShowThreePanel(Boolean(converted));
+    if (converted) {
+      void saveHistoryEntry(converted);
+    }
+  };
+
+  const saveHistoryEntry = async (converted) => {
+    const walls = converted?.walls?.length || 0;
+    const rooms = converted?.rooms?.length || 0;
+    const title = `2D→3D · ${walls} walls · ${rooms} rooms`;
+    setHistorySaving(true);
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/api/draw-history`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          three_js: converted,
+          editor: {
+            points,
+            isClosed,
+            deletedSegments,
+            openings,
+          },
+        }),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to save conversion history');
+      }
+      const payload = await response.json();
+      const item = payload?.item;
+      if (item?.id) {
+        setHistoryItems((current) => [
+          {
+            id: item.id,
+            title: item.title,
+            created_at: item.created_at,
+            stats: item.stats,
+          },
+          ...current.filter((entry) => entry.id !== item.id),
+        ].slice(0, 25));
+        setActiveHistoryId(item.id);
+      }
+      setHistoryError('');
+    } catch (error) {
+      setHistoryError(error?.message || 'Could not save history');
+    } finally {
+      setHistorySaving(false);
+    }
+  };
+
+  const loadHistoryList = async () => {
+    setHistoryLoading(true);
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/api/draw-history?limit=25`);
+      if (!response.ok) {
+        throw new Error('Failed to load history');
+      }
+      const payload = await response.json();
+      setHistoryItems(payload?.items || []);
+      setHistoryError('');
+    } catch (error) {
+      setHistoryError(error?.message || 'Could not load history');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadHistoryList();
+  }, []);
+
+  const handleLoadHistory = async (entryId) => {
+    setActiveHistoryId(entryId);
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/api/draw-history/${entryId}`);
+      if (!response.ok) {
+        throw new Error('Failed to load selected history');
+      }
+      const payload = await response.json();
+      const editor = payload?.editor || {};
+      const restoredPoints = Array.isArray(editor.points) ? editor.points : [];
+      const restoredOpenings = Array.isArray(editor.openings) ? editor.openings : [];
+      const restoredDeleted = Array.isArray(editor.deletedSegments) ? editor.deletedSegments : [];
+
+      setPoints(restoredPoints);
+      setIsClosed(Boolean(editor.isClosed));
+      setDeletedSegments(restoredDeleted);
+      setOpenings(restoredOpenings);
+      setThreeData(payload?.three_js || null);
+      setShowThreePanel(Boolean(payload?.three_js));
+      setHistoryError('');
+    } catch (error) {
+      setHistoryError(error?.message || 'Could not load selected history');
+    }
+  };
+
+  const handleRenameHistory = async (item) => {
+    const nextTitle = window.prompt('Rename conversion', item.title || 'Saved Conversion');
+    if (!nextTitle || !nextTitle.trim()) return;
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/api/draw-history/${item.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: nextTitle.trim() }),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to rename history item');
+      }
+      const payload = await response.json();
+      const updated = payload?.item;
+      if (!updated?.id) return;
+      setHistoryItems((current) => current.map((entry) => (
+        entry.id === updated.id ? { ...entry, title: updated.title } : entry
+      )));
+      setHistoryError('');
+    } catch (error) {
+      setHistoryError(error?.message || 'Could not rename history entry');
+    }
+  };
+
+  const handleDeleteHistory = async (item) => {
+    const confirmed = window.confirm(`Delete "${item.title || 'Saved Conversion'}"?`);
+    if (!confirmed) return;
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/api/draw-history/${item.id}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to delete history item');
+      }
+      setHistoryItems((current) => current.filter((entry) => entry.id !== item.id));
+      if (activeHistoryId === item.id) {
+        setActiveHistoryId(null);
+      }
+      setHistoryError('');
+    } catch (error) {
+      setHistoryError(error?.message || 'Could not delete history entry');
+    }
   };
 
   const modeButtons = [
@@ -643,6 +787,117 @@ export default function Draw2DTo3DStudio() {
                 DRAW A 2D PLAN AND CLICK CONVERT TO 3D
               </div>
             )}
+          </div>
+
+          <div style={{ borderTop: '1px solid rgba(0,255,255,0.14)', padding: '0.7rem 0.9rem', maxHeight: '220px', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.45rem' }}>
+              <div style={{ color: '#00ffff', fontSize: '0.62rem', letterSpacing: '1.8px' }}>CONVERSION HISTORY</div>
+              <button
+                type="button"
+                onClick={() => { void loadHistoryList(); }}
+                style={{
+                  background: 'none',
+                  border: '1px solid rgba(0,255,255,0.24)',
+                  color: 'rgba(150,230,255,0.85)',
+                  fontSize: '0.52rem',
+                  letterSpacing: '1.3px',
+                  padding: '0.22rem 0.45rem',
+                  fontFamily: "'Courier New', monospace",
+                  cursor: 'pointer',
+                }}
+              >
+                REFRESH
+              </button>
+            </div>
+            {historySaving ? (
+              <div style={{ color: 'rgba(0,255,255,0.45)', fontSize: '0.55rem', letterSpacing: '1.2px', marginBottom: '0.4rem' }}>
+                SAVING CURRENT CONVERSION...
+              </div>
+            ) : null}
+            {historyLoading ? (
+              <div style={{ color: 'rgba(0,255,255,0.45)', fontSize: '0.55rem', letterSpacing: '1.2px' }}>
+                LOADING HISTORY...
+              </div>
+            ) : null}
+            {historyError ? (
+              <div style={{ color: 'rgba(255,160,160,0.85)', fontSize: '0.55rem', letterSpacing: '1.1px', marginBottom: '0.45rem' }}>
+                {historyError}
+              </div>
+            ) : null}
+            {!historyLoading && historyItems.length === 0 ? (
+              <div style={{ color: 'rgba(0,255,255,0.35)', fontSize: '0.55rem', letterSpacing: '1.1px' }}>
+                NO SAVED CONVERSIONS YET.
+              </div>
+            ) : null}
+            {historyItems.map((item) => (
+              <div
+                key={item.id}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  background: activeHistoryId === item.id ? 'rgba(0,255,255,0.14)' : 'rgba(0,255,255,0.04)',
+                  border: '1px solid rgba(0,255,255,0.18)',
+                  color: 'rgba(180,240,255,0.9)',
+                  padding: '0.42rem 0.5rem',
+                  marginBottom: '0.35rem',
+                  fontFamily: "'Courier New', monospace",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => { void handleLoadHistory(item.id); }}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'inherit',
+                    cursor: 'pointer',
+                    padding: 0,
+                  }}
+                >
+                  <div style={{ fontSize: '0.56rem', letterSpacing: '1px' }}>{item.title || 'Saved Conversion'}</div>
+                  <div style={{ color: 'rgba(120,220,255,0.62)', fontSize: '0.5rem', letterSpacing: '1px', marginTop: '0.18rem' }}>
+                    {(item.created_at || '').replace('T', ' ').replace('Z', '')} ·
+                    {' '}W:{item?.stats?.walls ?? 0} · D:{item?.stats?.doors ?? 0} · Win:{item?.stats?.windows ?? 0}
+                  </div>
+                </button>
+                <div style={{ display: 'flex', gap: '0.35rem', marginTop: '0.38rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => { void handleRenameHistory(item); }}
+                    style={{
+                      background: 'none',
+                      border: '1px solid rgba(0,255,255,0.2)',
+                      color: 'rgba(150,235,255,0.9)',
+                      fontSize: '0.5rem',
+                      padding: '0.2rem 0.35rem',
+                      letterSpacing: '1px',
+                      cursor: 'pointer',
+                      fontFamily: "'Courier New', monospace",
+                    }}
+                  >
+                    RENAME
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { void handleDeleteHistory(item); }}
+                    style={{
+                      background: 'none',
+                      border: '1px solid rgba(255,140,140,0.35)',
+                      color: 'rgba(255,180,180,0.9)',
+                      fontSize: '0.5rem',
+                      padding: '0.2rem 0.35rem',
+                      letterSpacing: '1px',
+                      cursor: 'pointer',
+                      fontFamily: "'Courier New', monospace",
+                    }}
+                  >
+                    DELETE
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </section>
       </div>

@@ -1,0 +1,124 @@
+[
+  {
+    "id": "draw_20260330T035011Z_1e6ed30d22",
+    "type": "draw",
+    "draw_entry_id": "20260330T035011Z_1e6ed30d22",
+    "created_at": "2026-03-30T03:50:11.275686Z",
+    "title": "2D\u21923D \u00b7 6 walls \u00b7 1 rooms",
+    "stats": {
+      "walls": 6,
+      "doors": 0,
+      "windows": 0,
+      "rooms": 1
+    }
+  },
+  {
+    "id": "draw_20260330T035008Z_8ab19a26de",
+    "type": "draw",
+    "draw_entry_id": "20260330T035008Z_8ab19a26de",
+    "created_at": "2026-03-30T03:50:08.676105Z",
+    "title": "2D\u21923D \u00b7 5 walls \u00b7 0 rooms",
+    "stats": {
+      "walls": 5,
+      "doors": 0,
+      "windows": 0,
+      "rooms": 0
+    }
+  },
+  {
+    "id": "draw_20260330T035007Z_05353624d1",
+    "type": "draw",
+    "draw_entry_id": "20260330T035007Z_05353624d1",
+    "created_at": "2026-03-30T03:50:07.261771Z",
+    "title": "2D\u21923D \u00b7 5 walls \u00b7 0 rooms",
+    "stats": {
+      "walls": 5,
+      "doors": 0,
+      "windows": 0,
+      "rooms": 0
+    }
+  },
+  {
+    "id": "draw_20260330T034931Z_10e7090591",
+    "type": "draw",
+    "draw_entry_id": "20260330T034931Z_10e7090591",
+    "created_at": "2026-03-30T03:49:31.830160Z",
+    "title": "2D\u21923D \u00b7 5 walls \u00b7 0 rooms",
+    "stats": {
+      "walls": 5,
+      "doors": 0,
+      "windows": 0,
+      "rooms": 0
+    }
+  },
+  {
+    "id": "upload_20260330T034738Z_whatsapp-image-2026-03-30-at-07-42-07_87ee962ea8",
+    "type": "upload",
+    "created_at": "2026-03-30T03:47:38.658322Z",
+    "title": "Upload \u00b7 WhatsApp Image 2026-03-30 at 07.42.07.jpeg",
+    "stats": {
+      "walls": 14,
+      "doors": 0,
+      "windows": 1,
+      "rooms": 5
+    },
+    "analysis_id": "20260330T034738Z_whatsapp-image-2026-03-30-at-07-42-07_87ee962ea8",
+    "analysis_path": "/Users/akashsmac/Desktop/try/autonomous-structural-intelligence/backend/data/uploads/20260330T034738Z_whatsapp-image-2026-03-30-at-07-42-07_87ee962ea8/analysis.json"
+  },
+  {
+    "id": "upload_20260330T034614Z_whatsapp-image-2026-03-30-at-07-42-07_87ee962ea8",
+    "type": "upload",
+    "created_at": "2026-03-30T03:46:14.277324Z",
+    "title": "Upload \u00b7 WhatsApp Image 2026-03-30 at 07.42.07.jpeg",
+    "stats": {
+      "walls": 14,
+      "doors": 0,
+      "windows": 1,
+      "rooms": 5
+    },
+    "analysis_id": "20260330T034614Z_whatsapp-image-2026-03-30-at-07-42-07_87ee962ea8",
+    "analysis_path": "/Users/akashsmac/Desktop/try/autonomous-structural-intelligence/backend/data/uploads/20260330T034614Z_whatsapp-image-2026-03-30-at-07-42-07_87ee962ea8/analysis.json"
+  },
+  {
+    "id": "upload_20260330T034458Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d",
+    "type": "upload",
+    "created_at": "2026-03-30T03:44:58.960955Z",
+    "title": "Upload \u00b7 Screenshot 2026-03-30 at 3.31.55\u202fAM.png",
+    "stats": {
+      "walls": 40,
+      "doors": 3,
+      "windows": 10,
+      "rooms": 8
+    },
+    "analysis_id": "20260330T034458Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d",
+    "analysis_path": "/Users/akashsmac/Desktop/try/autonomous-structural-intelligence/backend/data/uploads/20260330T034458Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d/analysis.json"
+  },
+  {
+    "id": "upload_20260330T034008Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d",
+    "type": "upload",
+    "created_at": "2026-03-30T03:40:08.338398Z",
+    "title": "Upload \u00b7 Screenshot 2026-03-30 at 3.31.55\u202fAM.png",
+    "stats": {
+      "walls": 40,
+      "doors": 3,
+      "windows": 10,
+      "rooms": 8
+    },
+    "analysis_id": "20260330T034008Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d",
+    "analysis_path": "/Users/akashsmac/Desktop/try/autonomous-structural-intelligence/backend/data/uploads/20260330T034008Z_screenshot-2026-03-30-at-3-31-55-am_08c0d4450d/analysis.json"
+  },
+  {
+    "id": "upload_20260330T033115Z_2d-floor-plan-example_2949fc52fd",
+    "type": "upload",
+    "created_at": "2026-03-30T03:31:15.930874Z",
+    "title": "Upload \u00b7 2D-floor-plan-example.jpg",
+    "stats": {
+      "walls": 26,
+      "doors": 2,
+      "windows": 7,
+      "rooms": 8
+    },
+    "analysis_id": "20260330T033115Z_2d-floor-plan-example_2949fc52fd",
+    "analysis_path": "/Users/akashsmac/Desktop/try/autonomous-structural-intelligence/backend/data/uploads/20260330T033115Z_2d-floor-plan-example_2949fc52fd/analysis.json"
+  }
+]

@@ -23,7 +23,7 @@ from typing import Optional
 import numpy as np
 import cv2
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, UploadFile, HTTPException, Body, Form, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, UploadFile, HTTPException, Body, Form, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -39,8 +39,14 @@ from pipeline.validator import verify_generated_model
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 UPLOADS_DIR = Path(__file__).resolve().parent / "data" / "uploads"
+DRAW_HISTORY_DIR = Path(__file__).resolve().parent / "data" / "draw_history"
+DRAW_HISTORY_INDEX = DRAW_HISTORY_DIR / "index.json"
+CONVERSION_HISTORY_DIR = Path(__file__).resolve().parent / "data" / "conversion_history"
+CONVERSION_HISTORY_INDEX = CONVERSION_HISTORY_DIR / "index.json"
 PIPELINE_JOBS = {}
 PIPELINE_LOCK = asyncio.Lock()
+DRAW_HISTORY_LOCK = asyncio.Lock()
+CONVERSION_HISTORY_LOCK = asyncio.Lock()
 
 # ── Numpy JSON Fix ────────────────────────────────────────────────────────────
 
@@ -247,6 +253,15 @@ async def run_pipeline(
             "report": report,
         }
         payload["storage"] = _persist_analysis(file.filename, contents, payload)
+        await _append_conversion_history({
+            "id": f"upload_{payload['storage']['analysis_id']}",
+            "type": "upload",
+            "created_at": datetime.utcnow().isoformat() + "Z",
+            "title": f"Upload · {file.filename or 'floor-plan'}",
+            "stats": _draw_stats_from_three_payload(three_payload),
+            "analysis_id": payload["storage"]["analysis_id"],
+            "analysis_path": payload["storage"]["analysis_path"],
+        })
         await _upsert_job(job_id, result=payload, error=None)
         await _send_progress(
             job_id,
@@ -367,6 +382,187 @@ async def manual_input(data: dict = Body(...)):
     except Exception as e:
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Draw 2D→3D History ───────────────────────────────────────────────────────
+
+@app.get("/api/conversion-history")
+async def list_conversion_history(limit: int = Query(default=30, ge=1, le=200)):
+    async with CONVERSION_HISTORY_LOCK:
+        items = _load_conversion_history_index()
+    return {"success": True, "items": items[:limit]}
+
+
+@app.get("/api/conversion-history/{entry_id}")
+async def get_conversion_history_entry(entry_id: str):
+    async with CONVERSION_HISTORY_LOCK:
+        items = _load_conversion_history_index()
+        found = next((item for item in items if item.get("id") == entry_id), None)
+    if not found:
+        raise HTTPException(status_code=404, detail="History entry not found")
+
+    entry_type = found.get("type")
+    if entry_type == "upload":
+        analysis_path = found.get("analysis_path")
+        if not analysis_path:
+            raise HTTPException(status_code=404, detail="Upload analysis path missing")
+        path = Path(analysis_path)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="Upload analysis file not found")
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return JSONResponse(to_json_safe({
+            "success": True,
+            "type": "upload",
+            "history": found,
+            "analysis": payload,
+        }))
+
+    if entry_type == "draw":
+        draw_id = found.get("draw_entry_id")
+        if not draw_id:
+            raise HTTPException(status_code=404, detail="Draw history id missing")
+        draw_path = DRAW_HISTORY_DIR / f"{draw_id}.json"
+        if not draw_path.exists():
+            raise HTTPException(status_code=404, detail="Draw history file not found")
+        payload = json.loads(draw_path.read_text(encoding="utf-8"))
+        return JSONResponse(to_json_safe({
+            "success": True,
+            "type": "draw",
+            "history": found,
+            "analysis": payload,
+        }))
+
+    raise HTTPException(status_code=404, detail="Unsupported history entry type")
+
+
+@app.get("/api/draw-history")
+async def list_draw_history(limit: int = Query(default=20, ge=1, le=100)):
+    async with DRAW_HISTORY_LOCK:
+        entries = _load_draw_history_index()
+    return {"success": True, "items": entries[:limit]}
+
+
+@app.get("/api/draw-history/{entry_id}")
+async def get_draw_history_entry(entry_id: str):
+    entry_path = DRAW_HISTORY_DIR / f"{entry_id}.json"
+    if not entry_path.exists():
+        raise HTTPException(status_code=404, detail="History entry not found")
+    try:
+        payload = json.loads(entry_path.read_text(encoding="utf-8"))
+        return JSONResponse(to_json_safe(payload))
+    except Exception as exc:
+        logger.error(f"Failed to read history entry {entry_id}: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to read history entry")
+
+
+@app.patch("/api/draw-history/{entry_id}")
+async def update_draw_history_entry(entry_id: str, data: dict = Body(...)):
+    new_title = str(data.get("title") or "").strip()
+    if not new_title:
+        raise HTTPException(status_code=400, detail="Field 'title' is required")
+
+    entry_path = DRAW_HISTORY_DIR / f"{entry_id}.json"
+    if not entry_path.exists():
+        raise HTTPException(status_code=404, detail="History entry not found")
+
+    async with DRAW_HISTORY_LOCK:
+        try:
+            payload = json.loads(entry_path.read_text(encoding="utf-8"))
+            payload["title"] = new_title[:120]
+            entry_path.write_text(json.dumps(to_json_safe(payload), indent=2), encoding="utf-8")
+
+            index = _load_draw_history_index()
+            for item in index:
+                if item.get("id") == entry_id:
+                    item["title"] = payload["title"]
+                    break
+            _write_draw_history_index(index)
+
+            conversion_index = _load_conversion_history_index()
+            for item in conversion_index:
+                if item.get("id") == f"draw_{entry_id}":
+                    item["title"] = payload["title"]
+                    break
+            _write_conversion_history_index(conversion_index)
+            return {"success": True, "item": payload}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error(f"Failed to update history entry {entry_id}: {exc}")
+            raise HTTPException(status_code=500, detail="Failed to update history entry")
+
+
+@app.delete("/api/draw-history/{entry_id}")
+async def delete_draw_history_entry(entry_id: str):
+    entry_path = DRAW_HISTORY_DIR / f"{entry_id}.json"
+
+    async with DRAW_HISTORY_LOCK:
+        if not entry_path.exists():
+            raise HTTPException(status_code=404, detail="History entry not found")
+        try:
+            entry_path.unlink(missing_ok=True)
+            index = _load_draw_history_index()
+            index = [item for item in index if item.get("id") != entry_id]
+            _write_draw_history_index(index)
+
+            conversion_index = _load_conversion_history_index()
+            conversion_index = [item for item in conversion_index if item.get("id") != f"draw_{entry_id}"]
+            _write_conversion_history_index(conversion_index)
+            return {"success": True, "deleted_id": entry_id}
+        except Exception as exc:
+            logger.error(f"Failed to delete history entry {entry_id}: {exc}")
+            raise HTTPException(status_code=500, detail="Failed to delete history entry")
+
+
+@app.post("/api/draw-history")
+async def create_draw_history_entry(data: dict = Body(...)):
+    three_js = data.get("three_js")
+    editor = data.get("editor")
+    if not isinstance(three_js, dict):
+        raise HTTPException(status_code=400, detail="Field 'three_js' must be an object")
+    if not isinstance(editor, dict):
+        raise HTTPException(status_code=400, detail="Field 'editor' must be an object")
+
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    entry_id = f"{timestamp}_{uuid4().hex[:10]}"
+    created_at = datetime.utcnow().isoformat() + "Z"
+    title = str(data.get("title") or f"Draw Conversion {created_at[:19]}")
+
+    stats = _draw_stats_from_three_payload(three_js)
+    record = {
+        "id": entry_id,
+        "title": title[:120],
+        "created_at": created_at,
+        "stats": stats,
+        "three_js": three_js,
+        "editor": editor,
+    }
+
+    async with DRAW_HISTORY_LOCK:
+        DRAW_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+        entry_path = DRAW_HISTORY_DIR / f"{entry_id}.json"
+        entry_path.write_text(json.dumps(to_json_safe(record), indent=2), encoding="utf-8")
+
+        index = _load_draw_history_index()
+        index.insert(0, {
+            "id": entry_id,
+            "title": record["title"],
+            "created_at": created_at,
+            "stats": stats,
+        })
+        index = index[:300]
+        _write_draw_history_index(index)
+
+    await _append_conversion_history({
+        "id": f"draw_{entry_id}",
+        "type": "draw",
+        "draw_entry_id": entry_id,
+        "created_at": created_at,
+        "title": record["title"],
+        "stats": stats,
+    })
+
+    return {"success": True, "item": record}
 
 
 # ── Three.js Payload Builder ──────────────────────────────────────────────────
@@ -548,6 +744,62 @@ def _safe_filename(filename: str) -> str:
 def _safe_slug(value: str) -> str:
     slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")
     return "-".join(part for part in slug.split("-") if part) or "upload"
+
+
+def _load_draw_history_index() -> list:
+    if not DRAW_HISTORY_INDEX.exists():
+        return []
+    try:
+        data = json.loads(DRAW_HISTORY_INDEX.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data
+    except Exception as exc:
+        logger.error(f"Failed to load draw history index: {exc}")
+    return []
+
+
+def _write_draw_history_index(index: list) -> None:
+    DRAW_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    DRAW_HISTORY_INDEX.write_text(json.dumps(to_json_safe(index), indent=2), encoding="utf-8")
+
+
+def _load_conversion_history_index() -> list:
+    if not CONVERSION_HISTORY_INDEX.exists():
+        return []
+    try:
+        data = json.loads(CONVERSION_HISTORY_INDEX.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data
+    except Exception as exc:
+        logger.error(f"Failed to load conversion history index: {exc}")
+    return []
+
+
+def _write_conversion_history_index(index: list) -> None:
+    CONVERSION_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    CONVERSION_HISTORY_INDEX.write_text(json.dumps(to_json_safe(index), indent=2), encoding="utf-8")
+
+
+async def _append_conversion_history(entry: dict) -> None:
+    async with CONVERSION_HISTORY_LOCK:
+        index = _load_conversion_history_index()
+        index = [item for item in index if item.get("id") != entry.get("id")]
+        index.insert(0, entry)
+        index = index[:500]
+        _write_conversion_history_index(index)
+
+
+def _draw_stats_from_three_payload(three_js: dict) -> dict:
+    walls = len(three_js.get("walls", []) or [])
+    doors = len(three_js.get("doors", []) or [])
+    windows = len(three_js.get("windows", []) or [])
+    rooms = len(three_js.get("rooms", []) or [])
+    return {
+        "walls": walls,
+        "doors": doors,
+        "windows": windows,
+        "rooms": rooms,
+    }
 
 
 # ── Run ───────────────────────────────────────────────────────────────────────

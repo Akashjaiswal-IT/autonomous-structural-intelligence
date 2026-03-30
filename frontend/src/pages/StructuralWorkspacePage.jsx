@@ -14,38 +14,38 @@ const cameraViews = [
   {
     title: 'Structural Intelligence',
     desc: 'Upload a floor plan — our AI pipeline parses walls, reconstructs geometry in 3D, and recommends optimal construction materials.',
-    position: new THREE.Vector3(0, 3, 12),
-    target: new THREE.Vector3(0, 1.5, 0),
+    position: new THREE.Vector3(10.8, 7.8, 12.4),
+    target: new THREE.Vector3(0.1, 4.2, 0.2),
   },
   {
     title: 'Wall Detection',
     desc: 'OpenCV Canny edge detection and HoughLinesP identify every wall segment, junction, and opening in your floor plan image.',
-    position: new THREE.Vector3(1.5, 1.5, 2),
-    target: new THREE.Vector3(1.5, 1.5, -2),
+    position: new THREE.Vector3(6.8, 5.9, 8.2),
+    target: new THREE.Vector3(0.2, 4.1, 0.1),
   },
   {
     title: '3D Reconstruction',
     desc: 'Shapely geometry reconstruction classifies load-bearing vs partition walls. Each wall extruded to 3m height with correct positioning.',
-    position: new THREE.Vector3(-1.5, 1.5, 1.5),
-    target: new THREE.Vector3(-1.5, 1.5, -1.5),
+    position: new THREE.Vector3(2.9, 4.9, 4.8),
+    target: new THREE.Vector3(0.2, 4.4, -0.8),
   },
   {
     title: 'Material Optimisation',
     desc: 'Weighted tradeoff scoring selects optimal materials — strength 60%, durability 30%, cost 10% for load-bearing. Reversed for partitions.',
-    position: new THREE.Vector3(-1.5, 1.5, -1.5),
-    target: new THREE.Vector3(1.5, 1.5, -1.5),
+    position: new THREE.Vector3(0.3, 3.3, 2.5),
+    target: new THREE.Vector3(0.1, 3.0, -1.8),
   },
   {
     title: 'LLM Explainability',
     desc: 'Every material recommendation explained in plain English with span measurements, structural concerns flagged, and cost breakdown.',
-    position: new THREE.Vector3(1.5, 1.5, -1.5),
-    target: new THREE.Vector3(0, 3.5, 0),
+    position: new THREE.Vector3(0, 1.35, 1.7),
+    target: new THREE.Vector3(0, 1.2, -2.6),
   },
   {
     title: 'Blockchain Verified',
     desc: 'Analysis hash logged on Stellar Soroban testnet. Every structural report is immutably recorded with a certificate of authenticity.',
-    position: new THREE.Vector3(8, 6, -8),
-    target: new THREE.Vector3(0, 1.5, 0),
+    position: new THREE.Vector3(-9.8, 7.2, 11.6),
+    target: new THREE.Vector3(0.2, 4.4, 0.2),
   },
 ]
 
@@ -57,7 +57,7 @@ const blueprintMat = new THREE.MeshStandardMaterial({
   side: THREE.DoubleSide,
 })
 
-function CameraController({ scrollProgressRef }) {
+function CameraController({ scrollProgressRef, dragYawRef }) {
   const { camera } = useThree()
   const currentLookAt = useRef(new THREE.Vector3(0, 1.5, 0))
 
@@ -76,7 +76,12 @@ function CameraController({ scrollProgressRef }) {
       cameraViews[endIndex].target,
       localT,
     )
-    camera.position.lerp(targetPos, delta * 4)
+    const yaw = dragYawRef.current || 0
+    const offset = targetPos.clone().sub(targetLookAt)
+    offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw)
+    const draggedPosition = targetLookAt.clone().add(offset)
+
+    camera.position.lerp(draggedPosition, delta * 4)
     currentLookAt.current.lerp(targetLookAt, delta * 4)
     camera.lookAt(currentLookAt.current)
   })
@@ -92,33 +97,45 @@ function BlueprintHouse() {
   return (
     <group position={[0, -0.5, 0]}>
       <mesh position={[0, 1.5, 0]} material={blueprintMat}>
-        <boxGeometry args={[6, 3, 6]} />
+        <boxGeometry args={[6.5, 3, 6.5]} />
+        <BlueprintEdges />
+      </mesh>
+      <mesh position={[0, 4.7, 0]} material={blueprintMat}>
+        <boxGeometry args={[6.2, 3, 6.2]} />
         <BlueprintEdges />
       </mesh>
       <mesh position={[0, 1.5, 0]} material={blueprintMat}>
-        <boxGeometry args={[0.1, 3, 6]} />
+        <boxGeometry args={[0.1, 3, 6.5]} />
         <BlueprintEdges />
       </mesh>
-      <mesh position={[-1.5, 1.5, 0]} material={blueprintMat}>
+      <mesh position={[0, 4.7, 0]} material={blueprintMat}>
+        <boxGeometry args={[0.1, 3, 6.2]} />
+        <BlueprintEdges />
+      </mesh>
+      <mesh position={[-1.7, 1.5, 0]} material={blueprintMat}>
         <boxGeometry args={[3, 3, 0.1]} />
         <BlueprintEdges />
       </mesh>
-      <mesh position={[0, 4, 0]} rotation={[0, Math.PI / 4, 0]} material={blueprintMat}>
-        <coneGeometry args={[4.5, 2, 4]} />
+      <mesh position={[-1.7, 4.7, 0]} material={blueprintMat}>
+        <boxGeometry args={[3, 3, 0.1]} />
         <BlueprintEdges />
       </mesh>
-      <mesh position={[1.5, 1, 3]} material={blueprintMat}>
-        <boxGeometry args={[1, 2, 0.1]} />
+      <mesh position={[1.5, 1, 3.25]} material={blueprintMat}>
+        <boxGeometry args={[1.1, 2, 0.1]} />
         <BlueprintEdges />
       </mesh>
-      <mesh position={[-1.5, 1.5, 3]} material={blueprintMat}>
+      <mesh position={[1.5, 4.7, 3.1]} material={blueprintMat}>
         <boxGeometry args={[1.5, 1.2, 0.1]} />
+        <BlueprintEdges />
+      </mesh>
+      <mesh position={[0, 6.4, 0]} material={blueprintMat}>
+        <boxGeometry args={[5.6, 0.25, 5.6]} />
         <BlueprintEdges />
       </mesh>
       {[-3, 0, 3].flatMap((x, i) =>
         [-3, 0, 3].map((z, j) => (
-          <mesh key={`p-${i}-${j}`} position={[x, 1.5, z]} material={blueprintMat}>
-            <cylinderGeometry args={[0.1, 0.1, 3, 8]} />
+          <mesh key={`p-${i}-${j}`} position={[x, 3.2, z]} material={blueprintMat}>
+            <cylinderGeometry args={[0.1, 0.1, 6.4, 8]} />
             <BlueprintEdges />
           </mesh>
         )),
@@ -136,9 +153,29 @@ function BlueprintHouse() {
   )
 }
 
+function RevolvingBlueprintHouse() {
+  const groupRef = useRef(null)
+
+  useFrame((_state, delta) => {
+    if (!groupRef.current) return
+    // Very slow cinematic revolve.
+    groupRef.current.rotation.y += delta * 0.055
+  })
+
+  return (
+    <group ref={groupRef}>
+      <BlueprintHouse />
+    </group>
+  )
+}
+
 function LandingPage({ onEnter }) {
   const [activeIndex, setActiveIndex] = useState(0)
+  const [isDragging, setIsDragging] = useState(false)
   const scrollProgressRef = useRef(0)
+  const dragYawRef = useRef(0)
+  const dragStartXRef = useRef(0)
+  const yawStartRef = useRef(0)
 
   useEffect(() => {
     const handleScroll = () => {
@@ -159,13 +196,39 @@ function LandingPage({ onEnter }) {
   return (
     <div style={{ position: 'relative', width: '100%', background: '#030a14' }}>
       <div style={{ height: '600vh' }} />
-      <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 2, pointerEvents: 'none' }}>
+      <div
+        style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 2, cursor: isDragging ? 'grabbing' : 'grab' }}
+        onPointerDown={(event) => {
+          setIsDragging(true)
+          dragStartXRef.current = event.clientX
+          yawStartRef.current = dragYawRef.current
+          event.currentTarget.setPointerCapture(event.pointerId)
+        }}
+        onPointerMove={(event) => {
+          if (!isDragging) return
+          const deltaX = event.clientX - dragStartXRef.current
+          const nextYaw = yawStartRef.current - deltaX * 0.0035
+          dragYawRef.current = Math.max(-0.85, Math.min(0.85, nextYaw))
+        }}
+        onPointerUp={(event) => {
+          setIsDragging(false)
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId)
+          }
+        }}
+        onPointerCancel={(event) => {
+          setIsDragging(false)
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId)
+          }
+        }}
+      >
         <Canvas camera={{ position: cameraViews[0].position, fov: 45 }}>
           <color attach="background" args={['#030a14']} />
           <ambientLight intensity={0.4} />
           <directionalLight position={[10, 15, 10]} intensity={2} color="#ccffff" />
-          <BlueprintHouse />
-          <CameraController scrollProgressRef={scrollProgressRef} />
+          <RevolvingBlueprintHouse />
+          <CameraController scrollProgressRef={scrollProgressRef} dragYawRef={dragYawRef} />
         </Canvas>
       </div>
 

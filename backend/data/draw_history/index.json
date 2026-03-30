@@ -1,0 +1,46 @@
+[
+  {
+    "id": "20260330T035011Z_1e6ed30d22",
+    "title": "2D\u21923D \u00b7 6 walls \u00b7 1 rooms",
+    "created_at": "2026-03-30T03:50:11.275686Z",
+    "stats": {
+      "walls": 6,
+      "doors": 0,
+      "windows": 0,
+      "rooms": 1
+    }
+  },
+  {
+    "id": "20260330T035008Z_8ab19a26de",
+    "title": "2D\u21923D \u00b7 5 walls \u00b7 0 rooms",
+    "created_at": "2026-03-30T03:50:08.676105Z",
+    "stats": {
+      "walls": 5,
+      "doors": 0,
+      "windows": 0,
+      "rooms": 0
+    }
+  },
+  {
+    "id": "20260330T035007Z_05353624d1",
+    "title": "2D\u21923D \u00b7 5 walls \u00b7 0 rooms",
+    "created_at": "2026-03-30T03:50:07.261771Z",
+    "stats": {
+      "walls": 5,
+      "doors": 0,
+      "windows": 0,
+      "rooms": 0
+    }
+  },
+  {
+    "id": "20260330T034931Z_10e7090591",
+    "title": "2D\u21923D \u00b7 5 walls \u00b7 0 rooms",
+    "created_at": "2026-03-30T03:49:31.830160Z",
+    "stats": {
+      "walls": 5,
+      "doors": 0,
+      "windows": 0,
+      "rooms": 0
+    }
+  }
+]
