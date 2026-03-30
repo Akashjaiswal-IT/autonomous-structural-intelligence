@@ -1,24 +1,47 @@
 import React, { useState } from 'react';
+import { parseQualitativeToNumber, rankMaterialsForWalls } from '../utils/materialRanking.js';
 
-const scoreBar = (score, color) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-    <div style={{
-      width: '80px', height: '4px',
-      background: 'rgba(255,255,255,0.08)', borderRadius: '2px', overflow: 'hidden',
-    }}>
+const scoreBar = (score, color, glow = false) => {
+  const numeric = typeof score === 'number' && Number.isFinite(score)
+    ? score
+    : parseQualitativeToNumber(score, 2);
+  const width = `${Math.max(8, Math.min((numeric / 4) * 100, 100))}%`;
+
+  const label = typeof score === 'number' && Number.isFinite(score)
+    ? (numeric >= 3.5 ? 'Very High' : numeric >= 2.5 ? 'High' : numeric >= 1.5 ? 'Medium' : 'Low')
+    : String(score || '—');
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
       <div style={{
-        width: `${Math.min(score * 10, 100)}%`,
-        height: '100%',
-        background: color,
-        borderRadius: '2px',
-        transition: 'width 0.6s ease',
-      }} />
+        width: '102px',
+        height: '6px',
+        background: 'rgba(255,255,255,0.08)',
+        borderRadius: '999px',
+        overflow: 'hidden',
+        border: '1px solid rgba(255,255,255,0.06)',
+      }}>
+        <div style={{
+          width,
+          height: '100%',
+          background: color,
+          borderRadius: '999px',
+          transition: 'width 0.45s ease',
+          boxShadow: glow ? `0 0 14px ${color}` : 'none',
+        }} />
+      </div>
+      <span style={{
+        color,
+        fontSize: '0.84rem',
+        fontFamily: "'Courier New', monospace",
+        letterSpacing: '0.4px',
+        minWidth: '72px',
+      }}>
+        {label}
+      </span>
     </div>
-    <span style={{ color: color, fontSize: '0.72rem', fontFamily: "'Courier New', monospace" }}>
-      {typeof score === 'number' ? score.toFixed(2) : score}
-    </span>
-  </div>
-);
+  );
+};
 
 const rankBadge = (rank) => {
   const colors = { 1: '#00ffff', 2: '#4a9aba', 3: '#2a5a6a' };
@@ -27,22 +50,74 @@ const rankBadge = (rank) => {
     <div style={{
       background: colors[rank] || '#1a2a3a',
       color: rank === 1 ? '#030a14' : '#fff',
-      fontSize: '0.6rem',
+      fontSize: '0.74rem',
       fontWeight: 'bold',
-      padding: '2px 8px',
-      borderRadius: '2px',
-      letterSpacing: '1px',
+      padding: '3px 10px',
+      borderRadius: '5px',
+      letterSpacing: '1.2px',
       fontFamily: "'Courier New', monospace",
       whiteSpace: 'nowrap',
+      boxShadow: rank === 1 ? '0 0 14px rgba(0,255,255,0.4)' : 'none',
     }}>
       {labels[rank] || `#${rank}`}
     </div>
   );
 };
 
-export default function MaterialTable({ materialsData }) {
+function toUiRecommendation(rankedWall) {
+  return {
+    element_id: rankedWall.wallId,
+    element_type: rankedWall.type.toLowerCase(),
+    recommendations: rankedWall.materials.map((material) => ({
+      name: material.name,
+      score: material.score,
+      strength_score: material.strength,
+      durability_score: material.durability,
+      cost_score: material.cost,
+    })),
+  };
+}
+
+function normalizeBackendMaterial(mat) {
+  return {
+    name: mat?.material || mat?.name || 'Unknown',
+    score: typeof mat?.tradeoff_score === 'number' ? mat.tradeoff_score : (typeof mat?.score === 'number' ? mat.score : 0),
+    strength_score: mat?.strength_score ?? mat?.strength ?? 0,
+    durability_score: mat?.durability_score ?? mat?.durability ?? 0,
+    cost_score: mat?.cost_score ?? mat?.cost ?? 0,
+  };
+}
+
+function normalizeBackendRecommendation(elem) {
+  const rawList = Array.isArray(elem?.recommendations)
+    ? elem.recommendations
+    : (Array.isArray(elem?.ranked_materials) ? elem.ranked_materials : []);
+
+  return {
+    element_id: elem?.element_id || elem?.id,
+    element_type: elem?.element_type || elem?.type,
+    recommendations: rawList.map(normalizeBackendMaterial),
+  };
+}
+
+export default function MaterialTable({ materialsData, walls = [] }) {
   const [expandedElement, setExpandedElement] = useState(null);
   const { recommendations = [], cost_summary = {}, structural_concerns = [] } = materialsData || {};
+
+  const fallbackByWallId = new Map(
+    rankMaterialsForWalls(walls).map((ranked) => [String(ranked.wallId || '').toUpperCase(), toUiRecommendation(ranked)]),
+  );
+
+  const computedRecommendations = recommendations.length > 0
+    ? recommendations.map((elem) => {
+      const normalized = normalizeBackendRecommendation(elem);
+      if (normalized.recommendations.length > 0) return normalized;
+      const key = String(normalized.element_id || '').toUpperCase();
+      return fallbackByWallId.get(key) || normalized;
+    })
+    : (Array.isArray(walls) && walls.length > 0
+      ? rankMaterialsForWalls(walls).map(toUiRecommendation)
+      : []);
 
   return (
     <div style={{
@@ -51,34 +126,35 @@ export default function MaterialTable({ materialsData }) {
       height: '100%',
       overflowY: 'auto',
       padding: '1.5rem',
+      background: 'radial-gradient(1200px 420px at -20% -10%, rgba(0,255,255,0.08), transparent 55%)',
     }}>
       <div style={{ color: '#00ffff', fontSize: '0.65rem', letterSpacing: '4px', marginBottom: '1.5rem' }}>
         MATERIAL ANALYSIS & COST–STRENGTH TRADEOFF
       </div>
 
-      {/* Cost Summary */}
       {Object.keys(cost_summary).length > 0 && (
         <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: '0.75rem', marginBottom: '1.5rem',
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+          gap: '0.75rem',
+          marginBottom: '1.5rem',
         }}>
           {Object.entries(cost_summary).map(([key, val]) => (
             <div key={key} style={{
               background: 'rgba(0,255,255,0.04)',
               border: '1px solid rgba(0,255,255,0.15)',
               padding: '0.75rem 1rem',
-              borderRadius: '2px',
+              borderRadius: '8px',
             }}>
-              <div style={{ color: 'rgba(0,255,255,0.5)', fontSize: '0.6rem', letterSpacing: '2px', marginBottom: '0.3rem' }}>
+              <div style={{ color: 'rgba(0,255,255,0.55)', fontSize: '0.64rem', letterSpacing: '1.8px', marginBottom: '0.3rem' }}>
                 {key.replace(/_/g, ' ').toUpperCase()}
               </div>
-              <div style={{ color: '#fff', fontSize: '0.9rem' }}>{val}</div>
+              <div style={{ color: '#fff', fontSize: '0.95rem' }}>{val}</div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Structural Concerns */}
       {structural_concerns.length > 0 && (
         <div style={{ marginBottom: '1.5rem' }}>
           {structural_concerns.map((concern, i) => (
@@ -91,6 +167,7 @@ export default function MaterialTable({ materialsData }) {
               fontSize: '0.75rem',
               color: '#ff9090',
               letterSpacing: '0.5px',
+              borderRadius: '6px',
             }}>
               ⚠ {typeof concern === 'string' ? concern : concern.message || JSON.stringify(concern)}
             </div>
@@ -98,20 +175,19 @@ export default function MaterialTable({ materialsData }) {
         </div>
       )}
 
-      {/* Recommendations */}
-      {recommendations.map((elem, idx) => (
+      {computedRecommendations.map((elem, idx) => (
         <div key={idx} style={{
-          marginBottom: '1rem',
-          border: '1px solid rgba(0,255,255,0.12)',
-          borderRadius: '2px',
+          marginBottom: '1.1rem',
+          border: '1px solid rgba(0,255,255,0.15)',
+          borderRadius: '8px',
           overflow: 'hidden',
+          boxShadow: '0 10px 24px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.03)',
         }}>
-          {/* Element header */}
           <div
             onClick={() => setExpandedElement(expandedElement === idx ? null : idx)}
             style={{
-              background: 'rgba(0,255,255,0.05)',
-              padding: '0.8rem 1rem',
+              background: 'linear-gradient(180deg, rgba(0,255,255,0.06), rgba(0,255,255,0.03))',
+              padding: '0.95rem 1rem',
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
@@ -121,68 +197,79 @@ export default function MaterialTable({ materialsData }) {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <div style={{
-                width: '8px', height: '8px',
+                width: '12px',
+                height: '12px',
                 background: elem.element_type?.includes('load') ? '#cd853f' : '#00ffff',
                 borderRadius: '50%',
+                boxShadow: `0 0 14px ${elem.element_type?.includes('load') ? 'rgba(205,133,63,0.55)' : 'rgba(0,255,255,0.45)'}`,
               }} />
-              <span style={{ color: '#fff', fontSize: '0.8rem', letterSpacing: '1px' }}>
+              <span style={{ color: '#fff', fontSize: '0.94rem', letterSpacing: '1.1px', fontWeight: 700 }}>
                 {(elem.element_id || elem.element_type || `ELEMENT ${idx + 1}`).toString().toUpperCase()}
               </span>
-              <span style={{
-                color: 'rgba(0,255,255,0.4)', fontSize: '0.65rem', letterSpacing: '1px',
-              }}>
+              <span style={{ color: 'rgba(0,255,255,0.58)', fontSize: '0.84rem', letterSpacing: '1px' }}>
                 {elem.element_type?.toUpperCase()}
               </span>
             </div>
-            <div style={{ color: '#00ffff', fontSize: '0.75rem' }}>
+            <div style={{ color: '#00ffff', fontSize: '0.8rem', opacity: 0.85 }}>
               {expandedElement === idx ? '▲' : '▼'}
             </div>
           </div>
 
-          {/* Expanded material rows */}
           {expandedElement === idx && (
-            <div>
-              {/* Table header */}
+            <div style={{ overflowX: 'auto' }}>
               <div style={{
                 display: 'grid',
-                gridTemplateColumns: '40px 1fr 120px 120px 120px 80px',
-                gap: '0.5rem',
-                padding: '0.5rem 1rem',
-                color: 'rgba(0,255,255,0.4)',
-                fontSize: '0.6rem',
-                letterSpacing: '2px',
+                gridTemplateColumns: '72px minmax(220px,1fr) 180px 180px 180px 92px',
+                gap: '0.7rem',
+                padding: '0.72rem 1rem',
+                color: 'rgba(0,255,255,0.44)',
+                fontSize: '0.68rem',
+                letterSpacing: '2.2px',
                 borderBottom: '1px solid rgba(0,255,255,0.08)',
+                textTransform: 'uppercase',
+                minWidth: '980px',
               }}>
                 <div>RANK</div>
                 <div>MATERIAL</div>
                 <div>STRENGTH</div>
                 <div>DURABILITY</div>
                 <div>COST</div>
-                <div>SCORE</div>
+                <div style={{ textAlign: 'right' }}>SCORE</div>
               </div>
 
               {(elem.recommendations || []).map((mat, mIdx) => (
                 <div key={mIdx} style={{
                   display: 'grid',
-                  gridTemplateColumns: '40px 1fr 120px 120px 120px 80px',
-                  gap: '0.5rem',
-                  padding: '0.65rem 1rem',
+                  gridTemplateColumns: '72px minmax(220px,1fr) 180px 180px 180px 92px',
+                  gap: '0.7rem',
+                  padding: '0.95rem 1rem',
                   alignItems: 'center',
                   borderBottom: mIdx < elem.recommendations.length - 1
                     ? '1px solid rgba(0,255,255,0.05)' : 'none',
-                  background: mIdx === 0 ? 'rgba(0,255,255,0.03)' : 'transparent',
+                  background: mIdx === 0
+                    ? 'linear-gradient(90deg, rgba(0,255,255,0.11), rgba(0,255,255,0.02) 42%, rgba(0,255,255,0.01))'
+                    : 'transparent',
+                  minWidth: '980px',
                 }}>
                   <div>{rankBadge(mIdx + 1)}</div>
-                  <div style={{ color: mIdx === 0 ? '#fff' : '#8ab0b8', fontSize: '0.78rem', letterSpacing: '0.5px' }}>
+                  <div style={{
+                    color: mIdx === 0 ? '#f4fdff' : '#9ec5cf',
+                    fontSize: '1.05rem',
+                    lineHeight: 1.1,
+                    letterSpacing: '0.7px',
+                    fontWeight: mIdx === 0 ? 700 : 500,
+                  }}>
                     {mat.material || mat.name}
                   </div>
-                  <div>{scoreBar(mat.strength_score ?? mat.strength ?? 0, '#cd853f')}</div>
-                  <div>{scoreBar(mat.durability_score ?? mat.durability ?? 0, '#4a9aba')}</div>
-                  <div>{scoreBar(mat.cost_score ?? mat.cost ?? 0, '#6aaa6a')}</div>
+                  <div>{scoreBar(mat.strength_score ?? mat.strength ?? 0, '#cf8a40', mIdx === 0)}</div>
+                  <div>{scoreBar(mat.durability_score ?? mat.durability ?? 0, '#4ea7d0', mIdx === 0)}</div>
+                  <div>{scoreBar(mat.cost_score ?? mat.cost ?? 0, '#74ba7b', mIdx === 0)}</div>
                   <div style={{
-                    color: mIdx === 0 ? '#00ffff' : '#4a7a8a',
-                    fontSize: '0.78rem',
-                    fontWeight: mIdx === 0 ? 'bold' : 'normal',
+                    color: mIdx === 0 ? '#1efbff' : '#4a7a8a',
+                    fontSize: '1.05rem',
+                    fontWeight: mIdx === 0 ? 800 : 500,
+                    letterSpacing: '1px',
+                    textAlign: 'right',
                   }}>
                     {typeof mat.tradeoff_score === 'number'
                       ? mat.tradeoff_score.toFixed(3)
@@ -195,10 +282,13 @@ export default function MaterialTable({ materialsData }) {
         </div>
       ))}
 
-      {recommendations.length === 0 && (
+      {computedRecommendations.length === 0 && (
         <div style={{
-          color: 'rgba(0,255,255,0.3)', textAlign: 'center',
-          padding: '3rem', fontSize: '0.8rem', letterSpacing: '2px',
+          color: 'rgba(0,255,255,0.3)',
+          textAlign: 'center',
+          padding: '3rem',
+          fontSize: '0.8rem',
+          letterSpacing: '2px',
         }}>
           NO MATERIAL DATA AVAILABLE
         </div>

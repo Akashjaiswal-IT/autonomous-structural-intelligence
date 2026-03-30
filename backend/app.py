@@ -14,15 +14,21 @@ import math
 import logging
 import traceback
 import hashlib
+import asyncio
+from uuid import uuid4
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
 import numpy as np
 import cv2
-from fastapi import FastAPI, File, UploadFile, HTTPException, Body
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, UploadFile, HTTPException, Body, Form, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
+# Load backend/.env before importing pipeline modules that read env at import-time
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from pipeline.parser import parse_floor_plan, build_manual_result
 from pipeline.geometry import reconstruct_geometry
@@ -33,6 +39,8 @@ from pipeline.validator import verify_generated_model
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 UPLOADS_DIR = Path(__file__).resolve().parent / "data" / "uploads"
+PIPELINE_JOBS = {}
+PIPELINE_LOCK = asyncio.Lock()
 
 # ── Numpy JSON Fix ────────────────────────────────────────────────────────────
 
@@ -72,6 +80,93 @@ app.add_middleware(
 )
 
 
+async def _upsert_job(job_id: str, **fields):
+    async with PIPELINE_LOCK:
+        job = PIPELINE_JOBS.setdefault(job_id, {
+            "events": [],
+            "sockets": [],
+            "result": None,
+            "error": None,
+        })
+        job.update(fields)
+        return job
+
+
+async def _append_job_event(job_id: str, event: dict):
+    async with PIPELINE_LOCK:
+        job = PIPELINE_JOBS.setdefault(job_id, {
+            "events": [],
+            "sockets": [],
+            "result": None,
+            "error": None,
+        })
+        job["events"].append(event)
+        sockets = list(job["sockets"])
+
+    stale = []
+    for websocket in sockets:
+        try:
+            await websocket.send_json(event)
+        except Exception:
+            stale.append(websocket)
+
+    if stale:
+        async with PIPELINE_LOCK:
+            job = PIPELINE_JOBS.get(job_id)
+            if job:
+                job["sockets"] = [socket for socket in job["sockets"] if socket not in stale]
+
+
+async def _send_progress(
+    job_id: str,
+    stage: str,
+    progress: int,
+    message: str,
+    status: str = "progress",
+    extra: Optional[dict] = None,
+):
+    event = {
+        "type": "pipeline_progress",
+        "job_id": job_id,
+        "status": status,
+        "stage": stage,
+        "progress": progress,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }
+    if extra:
+        event.update(extra)
+    await _append_job_event(job_id, event)
+
+
+@app.websocket("/ws/pipeline/{job_id}")
+async def pipeline_progress_socket(websocket: WebSocket, job_id: str):
+    await websocket.accept()
+    async with PIPELINE_LOCK:
+        job = PIPELINE_JOBS.setdefault(job_id, {
+            "events": [],
+            "sockets": [],
+            "result": None,
+            "error": None,
+        })
+        job["sockets"].append(websocket)
+        replay_events = list(job["events"])
+
+    try:
+        for event in replay_events:
+            await websocket.send_json(event)
+
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        async with PIPELINE_LOCK:
+            job = PIPELINE_JOBS.get(job_id)
+            if job:
+                job["sockets"] = [socket for socket in job["sockets"] if socket is not websocket]
+
+
 # ── Health Check ──────────────────────────────────────────────────────────────
 
 @app.get("/api/health")
@@ -82,32 +177,46 @@ def health():
 # ── Full Pipeline (primary endpoint) ─────────────────────────────────────────
 
 @app.post("/api/pipeline")
-async def run_pipeline(file: UploadFile = File(...)):
+async def run_pipeline(
+    file: UploadFile = File(...),
+    job_id: Optional[str] = Form(default=None),
+):
     """
     Main endpoint. Upload a floor plan image.
     Returns: walls, rooms, 3D data, material recommendations, explanations.
     """
     try:
+        job_id = job_id or str(uuid4())
+        await _upsert_job(job_id)
+        await _send_progress(job_id, "upload_received", 5, "Upload received. Validating image.")
+
         contents = await file.read()
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
         if img is None:
+            await _send_progress(job_id, "failed", 100, "Invalid image file.", status="error")
             raise HTTPException(status_code=400, detail="Invalid image file")
 
         logger.info(f"Pipeline started: {file.filename}, size={img.shape}")
 
         # Stage 1+2: Parse + Geometry
+        await _send_progress(job_id, "parsing", 20, "Parsing floor plan and detecting walls.")
         parse_result = parse_floor_plan(img)
+
+        await _send_progress(job_id, "geometry", 45, "Reconstructing geometry and room layout.")
         geometry_result = reconstruct_geometry(parse_result)
 
         # Stage 4: Material analysis
+        await _send_progress(job_id, "materials", 65, "Analysing structural materials.")
         material_result = analyse_materials(geometry_result)
 
         # Stage 5: Explainability
+        await _send_progress(job_id, "report", 82, "Generating explainability report.")
         report = generate_report(material_result, geometry_result)
 
         # Build 3D-ready payload for Three.js
+        await _send_progress(job_id, "three_js", 92, "Building 3D payload and verification data.")
         three_payload = _build_three_payload(
             geometry_result,
             parse_result.get("openings", []),
@@ -117,6 +226,7 @@ async def run_pipeline(file: UploadFile = File(...)):
 
         payload = {
             "success": True,
+            "job_id": job_id,
             "fallback_used": geometry_result.get("fallback_used", False),
             "parse": {
                 "stats": parse_result.get("stats", {}),
@@ -137,6 +247,18 @@ async def run_pipeline(file: UploadFile = File(...)):
             "report": report,
         }
         payload["storage"] = _persist_analysis(file.filename, contents, payload)
+        await _upsert_job(job_id, result=payload, error=None)
+        await _send_progress(
+            job_id,
+            "complete",
+            100,
+            "Pipeline complete.",
+            status="complete",
+            extra={
+                "fallback_used": payload["fallback_used"],
+                "analysis_id": payload["storage"]["analysis_id"],
+            },
+        )
 
         return JSONResponse(to_json_safe(payload))
 
@@ -144,6 +266,9 @@ async def run_pipeline(file: UploadFile = File(...)):
         raise
     except Exception as e:
         logger.error(f"Pipeline error: {traceback.format_exc()}")
+        if job_id:
+            await _upsert_job(job_id, error=str(e))
+            await _send_progress(job_id, "failed", 100, f"Pipeline failed: {str(e)}", status="error")
         raise HTTPException(status_code=500, detail=f"Pipeline failed: {str(e)}")
 
 

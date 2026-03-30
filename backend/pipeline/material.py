@@ -9,11 +9,18 @@ Stage 4: Material Analysis & Cost-Strength Tradeoff
 import json
 import os
 import logging
+import copy
 from typing import Optional
+
+from pipeline.openai_compat import build_openai_client
 
 logger = logging.getLogger(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "../data/materials.json")
+OPENAI_COST_MODEL_DEFAULT = "gpt-4o-mini"
+OPENAI_COST_LOCATION_DEFAULT = "India, urban market"
+OPENAI_COST_YEAR_DEFAULT = "2026"
+OPENAI_COST_CURRENCY_DEFAULT = "INR"
 
 
 # ── Load Database ─────────────────────────────────────────────────────────────
@@ -32,6 +39,7 @@ def analyse_materials(geometry_result: dict) -> dict:
     Also returns a full cost estimate breakdown.
     """
     db = _load_db()
+    db, pricing_meta = _apply_openai_cost_overrides(db)
     elements = geometry_result.get("elements", [])
     concerns = geometry_result.get("structural_concerns", [])
 
@@ -69,10 +77,146 @@ def analyse_materials(geometry_result: dict) -> dict:
             "low_estimate_inr": round(total_cost_low),
             "high_estimate_inr": round(total_cost_high),
             "currency": "INR",
-            "note": "Approximate material cost only, excludes labour and overheads"
+            "note": "Approximate material cost only, excludes labour and overheads",
+            "pricing_source": pricing_meta.get("source", "static_db"),
+            "pricing_model": pricing_meta.get("model"),
+            "pricing_location": pricing_meta.get("location"),
+            "pricing_year": pricing_meta.get("year"),
+            "pricing_status": pricing_meta.get("status"),
+            "pricing_error": pricing_meta.get("error"),
         },
         "structural_concerns": concerns,
     }
+
+
+def _openai_cost_settings() -> dict:
+    return {
+        "enabled": os.getenv("OPENAI_COST_ESTIMATION", "false").lower() in {"1", "true", "yes"},
+        "model": os.getenv("OPENAI_COST_MODEL", OPENAI_COST_MODEL_DEFAULT),
+        "location": os.getenv("OPENAI_COST_LOCATION", OPENAI_COST_LOCATION_DEFAULT),
+        "year": os.getenv("OPENAI_COST_YEAR", OPENAI_COST_YEAR_DEFAULT),
+        "currency": os.getenv("OPENAI_COST_CURRENCY", OPENAI_COST_CURRENCY_DEFAULT),
+        "api_key": os.getenv("OPENAI_API_KEY"),
+    }
+
+
+def _apply_openai_cost_overrides(db: dict) -> tuple[dict, dict]:
+    """
+    Optionally override cost_per_sqft from OpenAI-estimated market rates.
+    Falls back to static DB if disabled, missing key, or response parsing fails.
+    """
+    cfg = _openai_cost_settings()
+    meta = {
+        "source": "static_db",
+        "model": cfg["model"],
+        "location": cfg["location"],
+        "year": cfg["year"],
+        "status": "fallback_static_db",
+        "error": None,
+    }
+
+    api_key = cfg["api_key"]
+    if not cfg["enabled"]:
+        meta["error"] = "OPENAI_COST_ESTIMATION disabled"
+        return db, meta
+    if not api_key:
+        logger.warning("OPENAI_COST_ESTIMATION enabled but OPENAI_API_KEY missing; using static DB costs")
+        meta["error"] = "OPENAI_API_KEY missing"
+        return db, meta
+    if str(api_key).strip().lower().startswith("demo_") or "replace_me" in str(api_key).lower():
+        meta["error"] = "OPENAI_API_KEY is placeholder value"
+        return db, meta
+
+    try:
+        client = build_openai_client(api_key)
+        material_rows = [
+            {
+                "id": m.get("id"),
+                "name": m.get("name"),
+                "cost": m.get("cost"),
+                "strength": m.get("strength"),
+                "durability": m.get("durability"),
+                "best_use": m.get("best_use"),
+                "existing_cost_per_sqft": m.get("cost_per_sqft"),
+            }
+            for m in db.get("materials", [])
+        ]
+
+        prompt = {
+            "task": "Estimate realistic material-only cost_per_sqft values.",
+            "constraints": {
+                "location": cfg["location"],
+                "year": cfg["year"],
+                "currency": cfg["currency"],
+                "unit": "per_sqft",
+                "include_only": "material cost",
+                "exclude": ["labour", "transport", "taxes", "overheads", "contractor margin"],
+            },
+            "materials": material_rows,
+            "response_format": {
+                "materials": [
+                    {"id": "string", "cost_per_sqft": "number"}
+                ]
+            },
+        }
+
+        response = client.chat.completions.create(
+            model=cfg["model"],
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a construction cost analyst. Return strict JSON only, "
+                        "with realistic conservative market estimates."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(prompt),
+                },
+            ],
+        )
+
+        content = response.choices[0].message.content if response.choices else None
+        parsed = json.loads(content) if content else {}
+        estimates = parsed.get("materials", [])
+        estimate_map = {}
+        for item in estimates:
+            material_id = item.get("id")
+            cost_val = item.get("cost_per_sqft")
+            if material_id and isinstance(cost_val, (int, float)) and cost_val > 0:
+                estimate_map[material_id] = float(cost_val)
+
+        if not estimate_map:
+            logger.warning("OpenAI pricing response did not include valid estimates; using static DB costs")
+            meta["error"] = "OpenAI response missing valid materials[] estimates"
+            return db, meta
+
+        updated_db = copy.deepcopy(db)
+        applied = 0
+        for material in updated_db.get("materials", []):
+            mid = material.get("id")
+            if mid in estimate_map:
+                material["cost_per_sqft"] = round(estimate_map[mid], 2)
+                applied += 1
+
+        if applied == 0:
+            logger.warning("OpenAI pricing estimates matched zero materials; using static DB costs")
+            meta["error"] = "No matching material ids from OpenAI response"
+            return db, meta
+
+        meta["source"] = "openai_estimated_market_rates"
+        meta["model"] = cfg["model"]
+        meta["status"] = "openai_pricing_applied"
+        meta["error"] = None
+        return updated_db, meta
+
+    except Exception as exc:
+        logger.warning(f"OpenAI cost override failed; using static DB costs. reason={exc}")
+        meta["error"] = str(exc)
+        return db, meta
 
 
 # ── Scoring Engine ────────────────────────────────────────────────────────────

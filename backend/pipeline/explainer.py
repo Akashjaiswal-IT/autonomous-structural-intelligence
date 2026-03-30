@@ -11,12 +11,15 @@ import json
 import logging
 from typing import Optional
 
+from pipeline.openai_compat import build_openai_client
+
 logger = logging.getLogger(__name__)
 
 # Set your preferred LLM: "claude" or "openai"
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_EXPLAINER_AVAILABLE = True
 
 
 # ── Main Entry Point ──────────────────────────────────────────────────────────
@@ -66,12 +69,16 @@ def _explain_element(rec: dict) -> str:
     """
     Try LLM first, fall back to template.
     """
+    global OPENAI_EXPLAINER_AVAILABLE
+
     try:
         if LLM_PROVIDER == "claude" and ANTHROPIC_API_KEY:
             return _llm_explain_claude(rec)
-        elif LLM_PROVIDER == "openai" and OPENAI_API_KEY:
+        elif LLM_PROVIDER == "openai" and OPENAI_API_KEY and OPENAI_EXPLAINER_AVAILABLE:
             return _llm_explain_openai(rec)
     except Exception as e:
+        if LLM_PROVIDER == "openai":
+            OPENAI_EXPLAINER_AVAILABLE = False
         logger.warning(f"LLM call failed: {e} — using template fallback")
 
     return _template_explain(rec)
@@ -146,11 +153,10 @@ def _llm_explain_claude(rec: dict) -> str:
 
 def _llm_explain_openai(rec: dict) -> str:
     """Call OpenAI API."""
-    import openai
-    openai.api_key = OPENAI_API_KEY
     prompt = _build_llm_prompt(rec)
+    client = build_openai_client(OPENAI_API_KEY)
 
-    response = openai.chat.completions.create(
+    response = client.chat.completions.create(
         model="gpt-4o-mini",
         max_tokens=200,
         messages=[
