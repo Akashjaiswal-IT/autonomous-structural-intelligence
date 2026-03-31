@@ -1,8 +1,10 @@
+setuptools
+wheel
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
 opencv-python==4.9.0.80
 numpy==1.26.4
-shapely==2.0.4
+shapely==2.0.1
 python-multipart==0.0.9
 anthropic==0.28.0
 openai==1.30.0
