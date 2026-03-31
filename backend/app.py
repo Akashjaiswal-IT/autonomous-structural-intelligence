@@ -47,6 +47,26 @@ PIPELINE_JOBS = {}
 PIPELINE_LOCK = asyncio.Lock()
 DRAW_HISTORY_LOCK = asyncio.Lock()
 CONVERSION_HISTORY_LOCK = asyncio.Lock()
+DEFAULT_FRONTEND_ORIGINS = {
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "https://recraft3d.vercel.app",
+}
+
+
+def _parse_cors_origins():
+    origins = set(DEFAULT_FRONTEND_ORIGINS)
+
+    for env_name in ("FRONTEND_URL", "FRONTEND_URLS"):
+        raw_value = os.getenv(env_name, "")
+        for origin in raw_value.split(","):
+            cleaned = origin.strip().rstrip("/")
+            if cleaned:
+                origins.add(cleaned)
+
+    return sorted(origins)
 
 # ── Numpy JSON Fix ────────────────────────────────────────────────────────────
 
@@ -76,10 +96,13 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS — allow React frontend on any port during dev
+CORS_ALLOWED_ORIGINS = _parse_cors_origins()
+
+# CORS — allow local dev plus the deployed Vercel frontend.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_origin_regex=r"https://autonomous-structural-intelligence(?:-[a-z0-9-]+)?\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

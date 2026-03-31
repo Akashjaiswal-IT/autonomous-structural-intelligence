@@ -124,6 +124,7 @@ If keys are missing, the pipeline still runs using template-based explanations.
 |----------|---------|
 | `VITE_CLERK_PUBLISHABLE_KEY` | Clerk browser SDK |
 | `VITE_API_URL` | Base URL for Express (default `http://localhost:8787`) |
+| `VITE_PIPELINE_API_URL` | Base URL for FastAPI pipeline backend; set this explicitly in production unless frontend and backend share one origin |
 ### `server/.env`
 | Variable | Purpose |
 |----------|---------|

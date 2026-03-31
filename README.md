@@ -87,4 +87,5 @@ Push only the `.env.example` files to GitHub. Keep the real `.env` files local a
 
 - For local development, `VITE_API_URL` can point to the Express Clerk demo API and `VITE_PIPELINE_API_URL` can point to the FastAPI backend.
 - For production, set both frontend env vars explicitly in your hosting platform.
+- `VITE_API_URL` is for the optional Express/Clerk API only. `VITE_PIPELINE_API_URL` must point to the FastAPI structural-analysis backend.
 - If your frontend and backend are served from the same origin in production, the frontend now falls back to the current site origin when these vars are not set.

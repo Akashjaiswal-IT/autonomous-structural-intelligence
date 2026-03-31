@@ -8,24 +8,25 @@ const localOrigins = new Set([
   'http://localhost:5174',
   'http://127.0.0.1:5174',
 ])
+const isLocalBrowserOrigin = browserOrigin ? localOrigins.has(browserOrigin) : false
 const sameOriginBaseUrl = browserOrigin && !localOrigins.has(browserOrigin) ? browserOrigin : null
-
-export const authApiBaseUrl =
+const configuredAuthApiBaseUrl =
   import.meta.env.VITE_API_URL
   || import.meta.env.VITE_BACKEND_URL
-  || sameOriginBaseUrl
-  || 'http://localhost:8787'
+  || null
+const configuredPipelineBaseUrl = import.meta.env.VITE_PIPELINE_API_URL || null
 
-const pipelineBaseUrlOverride = import.meta.env.VITE_PIPELINE_API_URL
+export const authApiBaseUrl =
+  configuredAuthApiBaseUrl
+  || (isLocalBrowserOrigin ? 'http://localhost:8787' : null)
+
+const localPipelineCandidates = ['http://127.0.0.1:8000', 'http://localhost:8000']
 const pipelineCandidates = Array.from(
   new Set(
     [
-      pipelineBaseUrlOverride,
-      import.meta.env.VITE_BACKEND_URL,
-      import.meta.env.VITE_API_URL,
+      configuredPipelineBaseUrl,
       sameOriginBaseUrl,
-      'http://localhost:8000',
-      'http://localhost:8787',
+      ...(isLocalBrowserOrigin ? localPipelineCandidates : []),
     ].filter(Boolean),
   ),
 )
@@ -49,16 +50,26 @@ export async function getPipelineBaseUrl() {
   if (pipelineResolutionPromise) return pipelineResolutionPromise
 
   pipelineResolutionPromise = (async () => {
+    if (configuredPipelineBaseUrl) {
+      resolvedPipelineBaseUrl = configuredPipelineBaseUrl
+      return resolvedPipelineBaseUrl
+    }
+
     for (const candidate of pipelineCandidates) {
-      // FastAPI health includes pipeline=ready; Express health does not.
       if (await probePipelineBaseUrl(candidate)) {
         resolvedPipelineBaseUrl = candidate
         return candidate
       }
     }
 
-    resolvedPipelineBaseUrl = pipelineBaseUrlOverride || 'http://localhost:8000'
-    return resolvedPipelineBaseUrl
+    if (isLocalBrowserOrigin) {
+      resolvedPipelineBaseUrl = localPipelineCandidates[0]
+      return resolvedPipelineBaseUrl
+    }
+
+    throw new Error(
+      'Pipeline API URL is not configured. Set VITE_PIPELINE_API_URL to your Render backend URL.',
+    )
   })()
 
   try {
@@ -85,10 +96,9 @@ export async function buildPipelineWsUrl(path) {
 }
 
 export const pipelineFallbackBaseUrl =
-  pipelineBaseUrlOverride
-  || import.meta.env.VITE_BACKEND_URL
+  configuredPipelineBaseUrl
   || sameOriginBaseUrl
-  || 'http://localhost:8000'
+  || localPipelineCandidates[0]
 
 export const api = axios.create({
   baseURL: authApiBaseUrl,
@@ -98,6 +108,10 @@ export const api = axios.create({
 })
 
 export async function getProtectedMessage(getToken) {
+  if (!authApiBaseUrl) {
+    throw new Error('Protected API URL is not configured. Set VITE_API_URL to your deployed auth API URL.')
+  }
+
   const token = await getToken()
   const response = await api.get('/api/protected', {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,

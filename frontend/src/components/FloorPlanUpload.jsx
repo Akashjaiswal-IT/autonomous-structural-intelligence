@@ -18,8 +18,8 @@ export default function FloorPlanUpload({ onAnalysisComplete, onLoading }) {
 
   const runPipeline = async (file) => {
     const jobId = crypto.randomUUID();
-    const pipelineBaseUrl = await getPipelineBaseUrl();
-    const wsUrl = await buildPipelineWsUrl(`/ws/pipeline/${jobId}`);
+    let pipelineBaseUrl = pipelineFallbackBaseUrl;
+    let wsUrl = null;
 
     onLoading(true, {
       jobId,
@@ -31,6 +31,8 @@ export default function FloorPlanUpload({ onAnalysisComplete, onLoading }) {
 
     let socket;
     try {
+      pipelineBaseUrl = await getPipelineBaseUrl();
+      wsUrl = await buildPipelineWsUrl(`/ws/pipeline/${jobId}`);
       socket = new WebSocket(wsUrl);
       socket.onmessage = (event) => {
         try {
