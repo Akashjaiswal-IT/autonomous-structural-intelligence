@@ -97,12 +97,13 @@ app = FastAPI(
 )
 
 CORS_ALLOWED_ORIGINS = _parse_cors_origins()
+logger.info("CORS allowed origins: %s", ", ".join(CORS_ALLOWED_ORIGINS))
 
 # CORS — allow local dev plus the deployed Vercel frontend.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ALLOWED_ORIGINS,
-    allow_origin_regex=r"https://autonomous-structural-intelligence(?:-[a-z0-9-]+)?\.vercel\.app",
+    allow_origin_regex=r"https://(?:recraft3d|recraft3d-[a-z0-9-]+)\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
